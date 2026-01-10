@@ -28,11 +28,11 @@ class DiemHandler:
     async def handle_diem(self, telegram_user_id: int, hocky_key: Optional[str] = None) -> Dict[str, Any]:
         """
         Xử lý lấy điểm của người dùng
-        
+
         Args:
             telegram_user_id: ID của người dùng trên Telegram
             hocky_key: Mã học kỳ (nếu None, lấy tất cả học kỳ)
-            
+
         Returns:
             Dict chứa kết quả và dữ liệu điểm
         """
@@ -44,7 +44,7 @@ class DiemHandler:
             if cached_result:
                 diem_data = cached_result.get("data")
                 timestamp = cached_result.get("timestamp")
-                
+
                 processed_data = self._process_diem_data(diem_data, hocky_key)
                 processed_data["timestamp"] = timestamp
 
@@ -56,32 +56,43 @@ class DiemHandler:
 
             # 2. Nếu cache miss, gọi API
             token = await self._get_user_token(telegram_user_id)
-            
+
             if not token:
                 return {
                     "success": False,
                     "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /login để đăng nhập.",
                     "data": None
                 }
-            
+
             response_data = await self._call_diem_api(token)
-            
-            # 3. Lưu vào cache
+
+            # 3. Kiểm tra xem có lỗi từ API không
+            if isinstance(response_data, dict) and response_data.get("error"):
+                error_message = self._format_api_error_message(response_data)
+                return {
+                    "success": False,
+                    "message": error_message,
+                    "data": None,
+                    "error_type": "api_error",
+                    "status_code": response_data.get("status_code")
+                }
+
+            # 4. Lưu vào cache nếu thành công
             if response_data and isinstance(response_data, list):
                 await self.cache_manager.set(cache_key, response_data, ttl=86400) # Cache trong 24 giờ
-            
-            # Kiểm tra kết quả
+
+            # 5. Kiểm tra kết quả
             if response_data and isinstance(response_data, list):
                 # Xử lý dữ liệu điểm
                 processed_data = self._process_diem_data(response_data, hocky_key)
-                
+
                 # Lấy timestamp từ cache manager để đồng bộ
                 cached_data = await self.cache_manager.get(cache_key)
                 if cached_data:
                     processed_data["timestamp"] = cached_data.get("timestamp")
                 else:
                     processed_data["timestamp"] = datetime.utcnow().isoformat()
-                
+
                 return {
                     "success": True,
                     "message": "Lấy điểm thành công (dữ liệu mới)",
@@ -94,7 +105,7 @@ class DiemHandler:
                     "data": response_data,
                     "show_back_button": True
                 }
-        
+
         except Exception as e:
             logger.error(f"Điểm error for user {telegram_user_id}: {e}")
             return {
@@ -196,6 +207,89 @@ class DiemHandler:
         except Exception as e:
             logger.error(f"Error getting token for user {telegram_user_id}: {e}")
             return None
+
+    def _format_api_error_message(self, error_data: Dict[str, Any]) -> str:
+        """
+        Định dạng thông báo lỗi từ API thành thông báo thân thiện với người dùng
+
+        Args:
+            error_data: Dữ liệu lỗi từ API
+
+        Returns:
+            Thông báo lỗi đã được định dạng
+        """
+        try:
+            status_code = error_data.get("status_code")
+            error_message = error_data.get("message", "")
+
+            # Xử lý lỗi 422 - Sinh viên không đủ điều kiện xem điểm (chưa hoàn thành khảo sát)
+            if status_code == 422:
+                try:
+                    # Parse JSON error message
+                    import json
+                    error_json = json.loads(error_message)
+
+                    error_message_text = error_json.get("errorMessage", "")
+                    reasons = error_json.get("reasons", {})
+
+                    # Kiểm tra nếu là lỗi chưa hoàn thành khảo sát hoặc không đủ điều kiện xem điểm
+                    if ("khảo sát" in error_message_text.lower() or
+                        "survey" in error_message_text.lower() or
+                        "không đủ điều kiện" in error_message_text.lower() or
+                        "not eligible" in error_message_text.lower()):
+                        return (
+                            "🚫 *Không thể xem điểm*\n\n"
+                            "Bạn chưa hoàn thành các khảo sát sinh viên bắt buộc.\n\n"
+                            "Để xem điểm, vui lòng:\n"
+                            "1. Truy cập trang web sinhvien.hutech.edu.vn\n"
+                            "2. Đăng nhập vào hệ thống\n"
+                            "3. Hoàn thành đầy đủ các phiếu khảo sát tại mục \"Khảo sát sinh viên\"\n\n"
+                            "Sau khi hoàn thành khảo sát, hãy thử lại lệnh /diem"
+                        )
+
+                    # Các lỗi 422 khác
+                    message = reasons.get("message", error_message_text)
+                    return f"🚫 *Lỗi từ hệ thống*\n\n{message}"
+
+                except (json.JSONDecodeError, KeyError):
+                    # Nếu không parse được JSON, kiểm tra error_message trực tiếp
+                    if ("không đủ điều kiện" in error_message.lower() or
+                        "not eligible" in error_message.lower()):
+                        return (
+                            "🚫 *Không thể xem điểm*\n\n"
+                            "Bạn chưa hoàn thành các khảo sát sinh viên bắt buộc.\n\n"
+                            "Để xem điểm, vui lòng:\n"
+                            "1. Truy cập trang web sinhvien.hutech.edu.vn\n"
+                            "2. Đăng nhập vào hệ thống\n"
+                            "3. Hoàn thành đầy đủ các phiếu khảo sát tại mục \"Khảo sát sinh viên\"\n\n"
+                            "Sau khi hoàn thành khảo sát, hãy thử lại lệnh /diem"
+                        )
+
+                    # Nếu không parse được JSON, hiển thị thông báo chung
+                    return (
+                        "🚫 *Không thể xem điểm*\n\n"
+                        "Hệ thống báo lỗi: Sinh viên không đủ điều kiện để xem điểm.\n\n"
+                        "Vui lòng kiểm tra và hoàn thành các yêu cầu cần thiết trên hệ thống sinhvien.hutech.edu.vn"
+                    )
+
+            # Xử lý các lỗi HTTP khác
+            elif status_code == 401:
+                return "🚫 *Lỗi xác thực*\n\nPhiên đăng nhập đã hết hạn. Vui lòng /dangxuat và /dangnhap lại."
+            elif status_code == 403:
+                return "🚫 *Lỗi quyền truy cập*\n\nBạn không có quyền truy cập chức năng này."
+            elif status_code == 404:
+                return "🚫 *Không tìm thấy*\n\nKhông tìm thấy dữ liệu điểm. Vui lòng thử lại sau."
+            elif status_code == 500:
+                return "🚫 *Lỗi máy chủ*\n\nMáy chủ đang gặp sự cố. Vui lòng thử lại sau."
+            elif status_code >= 500:
+                return f"🚫 *Lỗi máy chủ*\n\nMáy chủ trả về lỗi {status_code}. Vui lòng thử lại sau."
+            else:
+                # Lỗi khác
+                return f"🚫 *Lỗi API*\n\nMã lỗi: {status_code}\n\n{error_message}"
+
+        except Exception as e:
+            logger.error(f"Error formatting API error message: {e}")
+            return "🚫 *Lỗi không xác định*\n\nĐã xảy ra lỗi khi xử lý phản hồi từ máy chủ. Vui lòng thử lại sau."
     
     def _process_diem_data(self, diem_data: List[Dict[str, Any]], hocky_key: Optional[str] = None) -> Dict[str, Any]:
         """
