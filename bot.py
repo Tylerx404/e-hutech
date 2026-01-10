@@ -156,7 +156,7 @@ Các lệnh có sẵn:
         if result["success"]:
             await update.message.reply_text("Đăng nhập thành công!")
         else:
-            await update.message.reply_text(f"Đăng nhập thất bại: {result['message']}")
+            await update.message.reply_text(f"Đăng nhập thất bại: {result['message']}", reply_to_message_id=update.message.message_id)
         
         # Xóa dữ liệu tạm thời
         context.user_data.clear()
@@ -271,7 +271,7 @@ Các lệnh có sẵn:
             context.user_data['tkb_command_message_id'] = update.message.message_id
             context.user_data['tkb_reply_message_id'] = sent_message.message_id
         else:
-            await update.message.reply_text(f"Không thể lấy thời khóa biểu: {result['message']}", reply_to_message_id=update.message.message_id)
+            await update.message.reply_text(f"Không thể lấy thời khóa biểu: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
     
     async def lich_thi_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /lichthi"""
@@ -295,7 +295,7 @@ Các lệnh có sẵn:
                 reply_to_message_id=update.message.message_id
             )
         else:
-            await update.message.reply_text(f"Không thể lấy lịch thi: {result.get('message', 'Lỗi không xác định')}", reply_to_message_id=update.message.message_id)
+            await update.message.reply_text(f"Không thể lấy lịch thi: {result.get('message', 'Lỗi không xác định')}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
 
     
     async def diem_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -334,7 +334,7 @@ Các lệnh có sẵn:
                 reply_to_message_id=update.message.message_id
             )
         else:
-            await update.message.reply_text(f"Không thể lấy điểm: {result['message']}", reply_to_message_id=update.message.message_id)
+            await update.message.reply_text(f"Không thể lấy điểm: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
     
     async def hoc_phan_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /hocphan"""
@@ -373,7 +373,7 @@ Các lệnh có sẵn:
                 reply_to_message_id=update.message.message_id
             )
         else:
-            await update.message.reply_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}", reply_to_message_id=update.message.message_id)
+            await update.message.reply_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
     
     async def diemdanh_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /diemdanh"""
@@ -402,7 +402,7 @@ Các lệnh có sẵn:
                 reply_to_message_id=update.message.message_id
             )
         else:
-            await update.message.reply_text(f"Không thể hiển thị menu campus: {result['message']}", reply_to_message_id=update.message.message_id)
+            await update.message.reply_text(f"Không thể hiển thị menu campus: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
     
     async def diemdanh_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút chọn campus"""
@@ -469,7 +469,7 @@ Các lệnh có sẵn:
                     parse_mode="Markdown"
                 )
             else:
-                await query.edit_message_text(f"Không thể lấy lịch sử điểm danh: {result['message']}")
+                await query.edit_message_text(f"Không thể lấy lịch sử điểm danh: {result['message']}", parse_mode="Markdown")
     
     async def diemdanh_code_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Nhận mã QR từ người dùng và thực hiện điểm danh"""
@@ -722,7 +722,7 @@ Các lệnh có sẵn:
                 else:
                     await query.edit_message_text("Không tìm thấy năm học - học kỳ được chọn.")
             else:
-                await query.edit_message_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}")
+                await query.edit_message_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}", parse_mode="Markdown")
         elif callback_data.startswith("hocphan_"):
             # Xử lý khi chọn học phần
             if callback_data == "hocphan_back":
@@ -774,7 +774,7 @@ Các lệnh có sẵn:
                             await query.edit_message_text("Không có năm học - học kỳ nào để tìm kiếm.")
                             return
                     else:
-                        await query.edit_message_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}")
+                        await query.edit_message_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}", parse_mode="Markdown")
                         return
                 
                 # Tìm kiếm học phần với năm học - học kỳ đã chọn
@@ -817,7 +817,7 @@ Các lệnh có sẵn:
                     else:
                         await query.edit_message_text("Không tìm thấy học phần được chọn.")
                 else:
-                    await query.edit_message_text(f"Không thể tìm kiếm học phần: {search_result['message']}")
+                    await query.edit_message_text(f"Không thể tìm kiếm học phần: {search_result['message']}", parse_mode="Markdown")
         elif callback_data.startswith("danhsach_"):
             # Xử lý khi chọn danh sách sinh viên
             key_lop_hoc_phan = callback_data.split("danhsach_")[1]
@@ -907,12 +907,12 @@ Các lệnh có sẵn:
                         else:
                             await query.message.reply_text("Không tìm thấy học phần được chọn.")
                     else:
-                        await query.message.reply_text(f"Không thể tìm kiếm học phần: {search_result['message']}")
+                        await query.message.reply_text(f"Không thể tìm kiếm học phần: {search_result['message']}", parse_mode="Markdown")
                 
                 except Exception as e:
                     await query.edit_message_text(f"Lỗi tạo file Excel: {str(e)}")
             else:
-                await query.edit_message_text(f"Không thể lấy danh sách sinh viên: {result['message']}")
+                await query.edit_message_text(f"Không thể lấy danh sách sinh viên: {result['message']}", parse_mode="Markdown")
         elif callback_data == "lichthi_back":
             # Xử lý khi quay lại từ lịch thi
             await query.edit_message_text(
@@ -963,7 +963,7 @@ Các lệnh có sẵn:
                     else:
                         await query.edit_message_text("Không có học kỳ cũ hơn để hiển thị.")
                 else:
-                    await query.edit_message_text(f"Không thể lấy điểm: {result['message']}")
+                    await query.edit_message_text(f"Không thể lấy điểm: {result['message']}", parse_mode="Markdown")
             elif hocky_key == "back":
                 # Quay lại menu chính
                 result = await self.diem_handler.handle_diem(user_id)
@@ -991,7 +991,7 @@ Các lệnh có sẵn:
                         parse_mode="Markdown"
                     )
                 else:
-                    await query.edit_message_text(f"Không thể lấy điểm: {result['message']}")
+                    await query.edit_message_text(f"{result['message']}", parse_mode="Markdown")
             
             elif hocky_key.startswith("export_"):
                 # Xử lý xuất file Excel
@@ -1056,7 +1056,7 @@ Các lệnh có sẵn:
                         logger.error(f"Lỗi tạo file Excel: {e}", exc_info=True)
                         await query.edit_message_text(f"Lỗi tạo file Excel: {str(e)}")
                 else:
-                    await query.edit_message_text(f"Không thể lấy dữ liệu điểm để xuất file: {result['message']}")
+                    await query.edit_message_text(f"Không thể lấy dữ liệu điểm để xuất file: {result['message']}", parse_mode="Markdown")
             else:
                 # Xem điểm chi tiết của học kỳ được chọn
                 result = await self.diem_handler.handle_diem(user_id, hocky_key)
@@ -1080,7 +1080,7 @@ Các lệnh có sẵn:
                         parse_mode="Markdown"
                     )
                 else:
-                    await query.edit_message_text(f"Không thể lấy điểm chi tiết: {result['message']}")
+                    await query.edit_message_text(f"Không thể lấy điểm chi tiết: {result['message']}", parse_mode="Markdown")
     
     async def tkb_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút điều hướng tuần và xuất file"""
@@ -1160,7 +1160,7 @@ Các lệnh có sẵn:
                     parse_mode="Markdown"
                 )
             else:
-                await query.edit_message_text(f"Không thể lấy thời khóa biểu: {result['message']}")
+                await query.edit_message_text(f"Không thể lấy thời khóa biểu: {result['message']}", parse_mode="Markdown")
     
     def setup_handlers(self, application: Application) -> None:
         """Thiết lập các handler cho bot"""
