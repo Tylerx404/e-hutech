@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: db_name
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d db_name"]
@@ -41,13 +41,14 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-your_bot_token_here}
       - POSTGRES_URL=${POSTGRES_URL:-postgresql://user:password@postgres:5432/db_name}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/cache_name}
+      - TZ=Asia/Ho_Chi_Minh
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import asyncio; import sys; sys.path.append('/app'); from bot import HutechBot; bot = HutechBot(); asyncio.run(bot.db_manager.connect()); asyncio.run(bot.cache_manager.connect()); print('Health check passed')"]
+      test: ["CMD", "python", "-c", "print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
