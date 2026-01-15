@@ -256,7 +256,7 @@ Các lệnh có sẵn:
                     InlineKeyboardButton("Tuần tới ➡️", callback_data=f"tkb_{week_offset+1}")
                 ],
                 [
-                    InlineKeyboardButton("🗓️ Xuất ra iCalendar (.ics)", callback_data="tkb_export_ics")
+                    InlineKeyboardButton("🗓️ Xuất ra iCalendar (.ics)", callback_data=f"tkb_export_ics_{week_offset}")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1090,9 +1090,13 @@ Các lệnh có sẵn:
         # Lấy callback_data
         callback_data = query.data
 
-        if callback_data == "tkb_export_ics":
+        if callback_data.startswith("tkb_export_ics_"):
+            try:
+                week_offset = int(callback_data.split("_")[3])
+            except (ValueError, IndexError):
+                week_offset = 0
             await query.answer("Đang tạo file .ics, vui lòng chờ...", show_alert=False)
-            result = await self.tkb_handler.handle_export_tkb_ics(user_id)
+            result = await self.tkb_handler.handle_export_tkb_ics(user_id, week_offset)
             
             if result.get("success"):
                 file_path = result.get("file_path")
@@ -1148,7 +1152,7 @@ Các lệnh có sẵn:
                         InlineKeyboardButton("Tuần tới ➡️", callback_data=f"tkb_{week_offset+1}")
                     ],
                     [
-                        InlineKeyboardButton("🗓️ Xuất ra iCalendar (.ics)", callback_data="tkb_export_ics")
+                        InlineKeyboardButton("🗓️ Xuất ra iCalendar (.ics)", callback_data=f"tkb_export_ics_{week_offset}")
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)

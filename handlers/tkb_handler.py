@@ -105,7 +105,7 @@ class TkbHandler:
                 "data": None
             }
 
-    async def handle_export_tkb_ics(self, telegram_user_id: int) -> Dict[str, Any]:
+    async def handle_export_tkb_ics(self, telegram_user_id: int, week_offset: int = 0) -> Dict[str, Any]:
         """
         Xử lý yêu cầu xuất TKB ra file iCalendar (.ics).
         """
@@ -136,7 +136,7 @@ class TkbHandler:
             all_tkb_data = self.get_all_tkb_data(tkb_raw_data)
 
             # 3. Tạo file .ics
-            file_path = self.create_ics_file(all_tkb_data, telegram_user_id)
+            file_path = self.create_ics_file(all_tkb_data, telegram_user_id, week_offset)
 
             if file_path:
                 return {
@@ -503,13 +503,14 @@ class TkbHandler:
         except (ValueError, TypeError):
             return "??:??"
 
-    def create_ics_file(self, tkb_data: Dict[str, Any], telegram_user_id: int) -> Optional[str]:
+    def create_ics_file(self, tkb_data: Dict[str, Any], telegram_user_id: int, week_offset: int = 0) -> Optional[str]:
         """
         Tạo file iCalendar (.ics) từ dữ liệu thời khóa biểu.
 
         Args:
             tkb_data: Dữ liệu TKB đã được xử lý cho tất cả các tuần.
             telegram_user_id: ID người dùng Telegram để đặt tên file.
+            week_offset: Số tuần offset từ tuần hiện tại để bắt đầu xuất.
 
         Returns:
             Đường dẫn đến file .ics đã tạo hoặc None nếu có lỗi.
@@ -526,6 +527,12 @@ class TkbHandler:
             if not subjects:
                 return None
 
+            # Tính ngày bắt đầu lọc dựa trên week_offset
+            today = datetime.now()
+            days_since_monday = today.weekday()
+            monday = today - timedelta(days=days_since_monday)
+            filter_start_date = monday + timedelta(weeks=week_offset)
+
             for subject in subjects:
                 subject_name = subject.get("ten_hp", "N/A")
                 subject_code = subject.get("ma_hp", "N/A")
@@ -541,6 +548,11 @@ class TkbHandler:
                         num_periods = int(schedule.get("so_tiet", 0))
                         
                         if not ngay_hoc_str or start_period == 0:
+                            continue
+
+                        # Skip nếu ngày học trước filter_start_date
+                        schedule_date = datetime.strptime(ngay_hoc_str, "%d/%m/%Y")
+                        if schedule_date < filter_start_date:
                             continue
 
                         # Tính toán thời gian bắt đầu và kết thúc
