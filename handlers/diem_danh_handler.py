@@ -45,7 +45,7 @@ class DiemDanhHandler:
             if not token:
                 return {
                     "success": False,
-                    "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /login để đăng nhập.",
+                    "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /dangnhap để đăng nhập.",
                     "data": None
                 }
             
@@ -85,7 +85,7 @@ class DiemDanhHandler:
             if not token:
                 return {
                     "success": False,
-                    "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /login để đăng nhập.",
+                    "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /dangnhap để đăng nhập.",
                     "data": None
                 }
             
@@ -110,15 +110,7 @@ class DiemDanhHandler:
             
             # Gọi API điểm danh
             response_data = await self._call_diem_danh_api(token, code, device_uuid, location)
-            
-            # Lưu response vào database
-            save_data = {
-                "code": code,
-                "campus": campus_name,
-                "response_data": response_data
-            }
-            await self._save_diem_danh_response(telegram_user_id, save_data)
-            
+
             # Kiểm tra kết quả
             if response_data:
                 # Kiểm tra nếu có statusCode (thất bại)
@@ -250,24 +242,7 @@ class DiemDanhHandler:
                 "error": True,
                 "message": f"Lỗi không xác định: {str(e)}"
             }
-    
-    async def _save_diem_danh_response(self, telegram_user_id: int, save_data: Dict[str, Any]) -> bool:
-        """
-        Lưu response từ API điểm danh vào database
-        
-        Args:
-            telegram_user_id: ID của người dùng trên Telegram
-            save_data: Dữ liệu để lưu (chứa code, campus, response_data)
-            
-        Returns:
-            True nếu lưu thành công, False nếu có lỗi
-        """
-        try:
-            return self.db_manager.save_diem_danh_response(telegram_user_id, save_data)
-        except Exception as e:
-            logger.error(f"Error saving điểm danh submit response for user {telegram_user_id}: {e}")
-            return False
-    
+
     async def _get_user_token(self, telegram_user_id: int) -> Optional[str]:
         """
         Lấy token của người dùng từ database (ưu tiên token từ old_login_info cho các API cũ).
@@ -352,26 +327,6 @@ class DiemDanhHandler:
         except Exception as e:
             logger.error(f"Error creating campus keyboard: {e}")
             return []
-    
-    # def format_diem_danh_input_message(self, campus_name: str) -> str:
-    #     """
-    #     Định dạng tin nhắn yêu cầu nhập mã QR
-        
-    #     Args:
-    #         campus_name: Tên campus đã chọn
-            
-    #     Returns:
-    #         Chuỗi tin nhắn đã định dạng
-    #     """
-    #     try:
-    #         message = f"📍 *Điểm Danh Tại {campus_name}*\n\n"
-    #         message += "Vui lòng nhập mã QR để tiếp tục điểm danh:"
-            
-    #         return message
-        
-    #     except Exception as e:
-    #         logger.error(f"Error formatting điểm danh input message: {e}")
-    #         return f"Lỗi định dạng tin nhắn: {str(e)}"
     
     def format_diem_danh_numeric_message(self, campus_name: str) -> str:
         """

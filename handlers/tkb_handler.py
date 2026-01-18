@@ -14,6 +14,7 @@ from icalendar import Calendar, Event
 import pytz
 import os
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from config.config import Config
 
 logger = logging.getLogger(__name__)
@@ -105,15 +106,16 @@ class TkbHandler:
                 "data": None
             }
 
-    async def handle_export_tkb_ics(self, telegram_user_id: int) -> Dict[str, Any]:
+    async def handle_export_tkb_ics(self, telegram_user_id: int, week_offset: int = 0) -> Dict[str, Any]:
         """
         Xử lý yêu cầu xuất TKB ra file iCalendar (.ics).
+        Trả về keyboard chọn môn học nếu chưa có danh sách môn được chọn.
         """
         try:
             # 1. Lấy dữ liệu TKB (ưu tiên cache)
             cache_key = f"tkb:{telegram_user_id}"
             cached_result = await self.cache_manager.get(cache_key)
-            
+
             tkb_raw_data = None
             if cached_result:
                 tkb_raw_data = cached_result.get("data")
@@ -121,7 +123,7 @@ class TkbHandler:
                 token = await self._get_user_token(telegram_user_id)
                 if not token:
                     return {"success": False, "message": "Bạn chưa đăng nhập."}
-                
+
                 response_data = await self._call_tkb_api(token)
                 if response_data and isinstance(response_data, list):
                     await self.cache_manager.set(cache_key, response_data, ttl=3600)
@@ -132,23 +134,23 @@ class TkbHandler:
             if not tkb_raw_data:
                 return {"success": False, "message": "Không có dữ liệu TKB để xuất."}
 
-            # 2. Xử lý toàn bộ dữ liệu TKB
+            # 2. Lấy danh sách môn học
             all_tkb_data = self.get_all_tkb_data(tkb_raw_data)
+            subjects = all_tkb_data.get("subjects", [])
 
-            # 3. Tạo file .ics
-            file_path = self.create_ics_file(all_tkb_data, telegram_user_id)
+            if not subjects:
+                return {"success": False, "message": "Không có môn học nào để xuất."}
 
-            if file_path:
-                return {
-                    "success": True,
-                    "message": "Tạo file TKB (.ics) thành công.",
-                    "file_path": file_path
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": "Tạo file TKB (.ics) thất bại."
-                }
+            # 3. Tạo keyboard chọn môn học
+            keyboard = self.create_subject_selection_keyboard(subjects)
+
+            return {
+                "success": True,
+                "message": "Chọn môn học để xuất",
+                "keyboard": keyboard,
+                "subjects": subjects,
+                "week_offset": week_offset
+            }
 
         except Exception as e:
             logger.error(f"ICS export error for user {telegram_user_id}: {e}")
@@ -221,13 +223,61 @@ class TkbHandler:
             old_login_info = response_data.get("old_login_info")
             if isinstance(old_login_info, dict) and old_login_info.get("token"):
                 return old_login_info["token"]
-            
+
             # Nếu không, sử dụng token chính
             return response_data.get("token")
 
         except Exception as e:
             logger.error(f"Error getting token for user {telegram_user_id}: {e}")
             return None
+
+    def create_subject_selection_keyboard(self, subjects: List[Dict[str, Any]]) -> InlineKeyboardMarkup:
+        """
+        Tạo keyboard chọn môn học với checkbox.
+
+        Args:
+            subjects: Danh sách môn học.
+
+        Returns:
+            InlineKeyboardMarkup với các nút chọn môn học.
+        """
+        keyboard = []
+
+        # Tạo nút cho từng môn học
+        for subject in subjects:
+            ma_hp = subject.get("ma_hp", "")
+            ten_hp = subject.get("ten_hp", "")
+            # Format: [ ] Tên môn học (Mã HP)
+            button_text = f"[ ] {ten_hp} ({ma_hp})"
+            callback_data = f"tkb_subject_toggle_{ma_hp}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+
+        # Thêm nút xác nhận và hủy
+        keyboard.append([
+            InlineKeyboardButton("✅ Xác nhận", callback_data="tkb_subject_confirm"),
+            InlineKeyboardButton("❌ Hủy", callback_data="tkb_subject_cancel")
+        ])
+
+        return InlineKeyboardMarkup(keyboard)
+
+    def create_time_range_keyboard(self) -> InlineKeyboardMarkup:
+        """
+        Tạo keyboard chọn khoảng thời gian.
+
+        Returns:
+            InlineKeyboardMarkup với các nút chọn thời gian.
+        """
+        keyboard = [
+            [
+                InlineKeyboardButton("📅 Toàn bộ thời gian", callback_data="tkb_time_all"),
+                InlineKeyboardButton("📆 Từ tuần hiện tại", callback_data="tkb_time_current")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Quay lại", callback_data="tkb_time_back")
+            ]
+        ]
+
+        return InlineKeyboardMarkup(keyboard)
     
     def get_all_tkb_data(self, tkb_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -503,13 +553,17 @@ class TkbHandler:
         except (ValueError, TypeError):
             return "??:??"
 
-    def create_ics_file(self, tkb_data: Dict[str, Any], telegram_user_id: int) -> Optional[str]:
+    def create_ics_file(self, tkb_data: Dict[str, Any], telegram_user_id: int, week_offset: int = 0,
+                        selected_subjects: Optional[List[str]] = None, time_range: str = "all") -> Optional[str]:
         """
         Tạo file iCalendar (.ics) từ dữ liệu thời khóa biểu.
 
         Args:
             tkb_data: Dữ liệu TKB đã được xử lý cho tất cả các tuần.
             telegram_user_id: ID người dùng Telegram để đặt tên file.
+            week_offset: Số tuần offset từ tuần hiện tại để bắt đầu xuất.
+            selected_subjects: Danh sách mã học phần được chọn. Nếu None, xuất tất cả.
+            time_range: "all" cho toàn bộ thời gian, "current" cho từ tuần hiện tại.
 
         Returns:
             Đường dẫn đến file .ics đã tạo hoặc None nếu có lỗi.
@@ -526,34 +580,59 @@ class TkbHandler:
             if not subjects:
                 return None
 
+            # Xử lý danh sách môn học được chọn
+            if selected_subjects is None:
+                selected_subjects = []
+
+            # Tính ngày bắt đầu lọc dựa trên time_range và week_offset
+            today = datetime.now()
+            days_since_monday = today.weekday()
+            monday = today - timedelta(days=days_since_monday)
+
+            if time_range == "current":
+                # Từ tuần hiện tại + week_offset
+                filter_start_date = monday + timedelta(weeks=week_offset)
+            else:
+                # Toàn bộ thời gian - không lọc theo ngày
+                filter_start_date = datetime.min
+
             for subject in subjects:
                 subject_name = subject.get("ten_hp", "N/A")
                 subject_code = subject.get("ma_hp", "N/A")
-                
+
+                # Skip nếu môn học không được chọn (khi có danh sách chọn lọc)
+                if selected_subjects and subject_code not in selected_subjects:
+                    continue
+
                 for schedule in subject.get("chi_tiet_tkb", []):
                     try:
                         event = Event()
-                        
+
                         room = schedule.get("phong_hoc", "N/A")
                         ngay_hoc_str = schedule.get("ngay_hoc")
-                        
+
                         start_period = int(schedule.get("tiet_bd", 0))
                         num_periods = int(schedule.get("so_tiet", 0))
-                        
+
                         if not ngay_hoc_str or start_period == 0:
+                            continue
+
+                        # Skip nếu ngày học trước filter_start_date
+                        schedule_date = datetime.strptime(ngay_hoc_str, "%d/%m/%Y")
+                        if schedule_date < filter_start_date:
                             continue
 
                         # Tính toán thời gian bắt đầu và kết thúc
                         start_time_str = self._period_to_time(start_period)
                         end_time_str = self._period_to_time(start_period, num_periods)
-                        
+
                         start_dt_str = f"{ngay_hoc_str} {start_time_str}"
                         end_dt_str = f"{ngay_hoc_str} {end_time_str}"
-                        
+
                         # Chuyển đổi sang datetime object với múi giờ
                         start_dt = datetime.strptime(start_dt_str, "%d/%m/%Y %H:%M")
                         end_dt = datetime.strptime(end_dt_str, "%d/%m/%Y %H:%M")
-                        
+
                         start_dt_local = local_tz.localize(start_dt)
                         end_dt_local = local_tz.localize(end_dt)
 
@@ -564,24 +643,24 @@ class TkbHandler:
                         event.add('dtstamp', datetime.now(pytz.utc))
                         event.add('location', room)
                         event.add('description', f"Mã HP: {subject_code}\nPhòng: {room}")
-                        
+
                         # Thêm sự kiện vào calendar
                         cal.add_component(event)
 
                     except (ValueError, TypeError) as e:
                         logger.warning(f"Skipping event due to processing error: {e}")
                         continue
-            
+
             # Tạo thư mục temp nếu chưa có
             temp_dir = "temp"
             if not os.path.exists(temp_dir):
                 os.makedirs(temp_dir)
-            
+
             # Ghi file
             file_path = os.path.join(temp_dir, f"tkb_{telegram_user_id}.ics")
             with open(file_path, 'wb') as f:
                 f.write(cal.to_ical())
-            
+
             return file_path
 
         except Exception as e:

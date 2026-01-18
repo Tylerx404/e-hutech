@@ -55,7 +55,7 @@ class LichThiHandler:
             if not token:
                 return {
                     "success": False,
-                    "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /login để đăng nhập.",
+                    "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /dangnhap để đăng nhập.",
                     "data": None
                 }
             
@@ -153,26 +153,7 @@ class LichThiHandler:
                 "error": True,
                 "message": f"Lỗi không xác định: {str(e)}"
             }
-    
-    async def _save_lich_thi_response(self, telegram_user_id: int, response_data: Dict[str, Any]) -> bool:
-        """
-        Lưu response từ API lịch thi vào database
-        
-        Args:
-            telegram_user_id: ID của người dùng trên Telegram
-            response_data: Dữ liệu response từ API
-            
-        Returns:
-            True nếu lưu thành công, False nếu có lỗi
-        """
-        try:
-            # Phương thức này chưa được implement trong db_manager mới, có thể thêm sau nếu cần
-            logger.warning("save_lichthi_response is not implemented in the new db_manager.")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving lịch thi response for user {telegram_user_id}: {e}")
-            return False
-    
+
     async def _get_user_token(self, telegram_user_id: int) -> Optional[str]:
         """
         Lấy token của người dùng từ database (ưu tiên token từ old_login_info cho các API cũ).
