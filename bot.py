@@ -1086,64 +1086,71 @@ Các lệnh có sẵn:
         """Xử lý callback từ các nút điều hướng tuần và xuất file"""
         query = update.callback_query
         user_id = query.from_user.id
-        
+
         # Lấy callback_data
         callback_data = query.data
+
+        # === XỬ LÝ CHỌN MÔN HỌC ===
+        if callback_data.startswith("tkb_subject_"):
+            await self.handle_tkb_subject_callback(update, context)
+            return
+
+        # === XỬ LÝ CHỌN THỜI GIAN ===
+        if callback_data.startswith("tkb_time_"):
+            await self.handle_tkb_time_callback(update, context)
+            return
 
         if callback_data.startswith("tkb_export_ics_"):
             try:
                 week_offset = int(callback_data.split("_")[3])
             except (ValueError, IndexError):
                 week_offset = 0
-            await query.answer("Đang tạo file .ics, vui lòng chờ...", show_alert=False)
+
+            # Lưu week_offset vào context
+            context.user_data["tkb_week_offset"] = week_offset
+
+            await query.answer("Đang tải danh sách môn học...")
             result = await self.tkb_handler.handle_export_tkb_ics(user_id, week_offset)
-            
+
             if result.get("success"):
-                file_path = result.get("file_path")
-                if file_path and os.path.exists(file_path):
-                    try:
-                        await query.message.reply_document(
-                            document=open(file_path, 'rb'),
-                            filename=os.path.basename(file_path),
-                            caption="🗓️ File iCalendar thời khóa biểu của bạn."
-                        )
-                        # Xóa tin nhắn menu (tin nhắn của bot)
-                        await query.message.delete()
-                        
-                        # Xóa tin nhắn lệnh /tkb gốc của người dùng
-                        command_message_id = context.user_data.get('tkb_command_message_id')
-                        if command_message_id:
-                            await context.bot.delete_message(
-                                chat_id=query.message.chat_id,
-                                message_id=command_message_id
-                            )
-                    except Exception as e:
-                        logger.error(f"Lỗi gửi file ICS cho user {user_id}: {e}")
-                        await query.answer("Có lỗi xảy ra khi gửi file.", show_alert=True)
-                    finally:
-                        os.remove(file_path) # Xóa file tạm
-                else:
-                    await query.answer("Không thể tạo file TKB do không có dữ liệu.", show_alert=True)
+                keyboard = result.get("keyboard")
+                subjects = result.get("subjects", [])
+
+                # Lưu danh sách môn học vào context
+                context.user_data["tkb_subjects"] = subjects
+                context.user_data["selected_subjects"] = []  # Danh sách trống ban đầu
+                context.user_data["tkb_subjects_dict"] = {s.get("ma_hp"): s for s in subjects}
+
+                message = f"📚 *Chọn môn học để xuất*\n\n" \
+                          f"Tổng số môn học: {len(subjects)}\n" \
+                          f"Đã chọn: 0 môn\n\n" \
+                          f"Vui lòng chọn các môn học bên dưới:"
+
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
             else:
                 await query.answer(f"Lỗi: {result.get('message', 'Không rõ')}", show_alert=True)
             return
 
-        if callback_data.startswith("tkb_"):
+        if callback_data.startswith("tkb_") and not callback_data.startswith("tkb_export_ics_") and not callback_data.startswith("tkb_subject_") and not callback_data.startswith("tkb_time_"):
             try:
                 week_offset = int(callback_data.split("_")[1])
             except (ValueError, IndexError):
                 week_offset = 0
-            
+
             # Hiển thị thông báo đang xử lý
             await query.answer("Đang tải thời khóa biểu...")
-            
+
             # Lấy thời khóa biểu
             result = await self.tkb_handler.handle_tkb(user_id, week_offset)
-            
+
             if result["success"]:
                 # Định dạng dữ liệu thời khóa biểu
                 message = self.tkb_handler.format_tkb_message(result["data"])
-                
+
                 # Tạo keyboard cho các nút điều hướng
                 keyboard = [
                     [
@@ -1156,7 +1163,7 @@ Các lệnh có sẵn:
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                
+
                 # Cập nhật tin nhắn
                 await query.edit_message_text(
                     text=message,
@@ -1165,6 +1172,199 @@ Các lệnh có sẵn:
                 )
             else:
                 await query.edit_message_text(f"Không thể lấy thời khóa biểu: {result['message']}", parse_mode="Markdown")
+
+    async def handle_tkb_subject_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ menu chọn môn học"""
+        query = update.callback_query
+        callback_data = query.data
+        user_id = query.from_user.id
+
+        # Lấy dữ liệu từ context
+        subjects = context.user_data.get("tkb_subjects", [])
+        subjects_dict = context.user_data.get("tkb_subjects_dict", {})
+        selected_subjects = context.user_data.get("selected_subjects", [])
+        week_offset = context.user_data.get("tkb_week_offset", 0)
+
+        # Xử lý từng loại callback
+        if callback_data == "tkb_subject_confirm":
+            # Xác nhận - chuyển sang chọn thời gian
+            if not selected_subjects:
+                await query.answer("Vui lòng chọn ít nhất một môn học!", show_alert=True)
+                return
+
+            # Tạo thông báo danh sách đã chọn
+            selected_names = []
+            for ma_hp in selected_subjects:
+                if ma_hp in subjects_dict:
+                    subj = subjects_dict[ma_hp]
+                    selected_names.append(f"- {subj.get('ten_hp', ma_hp)} ({ma_hp})")
+
+            message = f"✅ *Đã chọn {len(selected_subjects)} môn học:*\n\n" + "\n".join(selected_names)
+
+            # Hiển thị menu chọn thời gian
+            time_keyboard = self.tkb_handler.create_time_range_keyboard()
+
+            await query.edit_message_text(
+                text=message,
+                reply_markup=time_keyboard,
+                parse_mode="Markdown"
+            )
+            return
+
+        if callback_data == "tkb_subject_cancel":
+            # Hủy - xóa menu và thông báo
+            # Xóa dữ liệu tạm
+            context.user_data.pop("tkb_subjects", None)
+            context.user_data.pop("selected_subjects", None)
+            context.user_data.pop("tkb_subjects_dict", None)
+            context.user_data.pop("tkb_week_offset", None)
+
+            await query.edit_message_text("❌ *Đã hủy xuất file.*", parse_mode="Markdown")
+            return
+
+        # Xử lý toggle môn học
+        if callback_data.startswith("tkb_subject_toggle_"):
+            ma_hp = callback_data.split("_")[-1]
+
+            if ma_hp in selected_subjects:
+                # Bỏ chọn
+                selected_subjects.remove(ma_hp)
+            else:
+                # Chọn
+                selected_subjects.append(ma_hp)
+
+            # Cập nhật context
+            context.user_data["selected_subjects"] = selected_subjects
+
+            # Tạo lại keyboard với trạng thái checkbox mới
+            keyboard = []
+            for subject in subjects:
+                subj_ma_hp = subject.get("ma_hp", "")
+                subj_ten_hp = subject.get("ten_hp", "")
+
+                # Checkbox state
+                checkbox = "[x]" if subj_ma_hp in selected_subjects else "[ ]"
+                button_text = f"{checkbox} {subj_ten_hp} ({subj_ma_hp})"
+                callback_data_btn = f"tkb_subject_toggle_{subj_ma_hp}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data_btn)])
+
+            # Nút xác nhận và hủy
+            keyboard.append([
+                InlineKeyboardButton("✅ Xác nhận", callback_data="tkb_subject_confirm"),
+                InlineKeyboardButton("❌ Hủy", callback_data="tkb_subject_cancel")
+            ])
+
+            # Cập nhật tin nhắn
+            message = f"📚 *Chọn môn học để xuất*\n\n" \
+                      f"Tổng số môn học: {len(subjects)}\n" \
+                      f"Đã chọn: {len(selected_subjects)} môn\n\n" \
+                      f"Vui lòng chọn các môn học bên dưới:"
+
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+
+        await query.answer()
+
+    async def handle_tkb_time_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ menu chọn thời gian"""
+        query = update.callback_query
+        callback_data = query.data
+        user_id = query.from_user.id
+
+        # Lấy dữ liệu từ context
+        selected_subjects = context.user_data.get("selected_subjects", [])
+        subjects_dict = context.user_data.get("tkb_subjects_dict", {})
+        week_offset = context.user_data.get("tkb_week_offset", 0)
+
+        if callback_data == "tkb_time_back":
+            # Quay lại menu chọn môn học
+            subjects = context.user_data.get("tkb_subjects", [])
+            keyboard = self.tkb_handler.create_subject_selection_keyboard(subjects)
+
+            message = f"📚 *Chọn môn học để xuất*\n\n" \
+                      f"Tổng số môn học: {len(subjects)}\n" \
+                      f"Đã chọn: {len(selected_subjects)} môn\n\n" \
+                      f"Vui lòng chọn các môn học bên dưới:"
+
+            await query.edit_message_text(
+                text=message,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+            return
+
+        if callback_data == "tkb_time_all":
+            # Toàn bộ thời gian
+            time_range = "all"
+            time_label = "toàn bộ thời gian"
+        elif callback_data == "tkb_time_current":
+            # Từ tuần hiện tại
+            time_range = "current"
+            time_label = "từ tuần hiện tại"
+        else:
+            await query.answer()
+            return
+
+        await query.answer("Đang tạo file .ics, vui lòng chờ...", show_alert=False)
+
+        # Lấy dữ liệu TKB từ cache
+        cache_key = f"tkb:{user_id}"
+        cached_result = await self.tkb_handler.cache_manager.get(cache_key)
+
+        if cached_result:
+            tkb_raw_data = cached_result.get("data")
+            all_tkb_data = self.tkb_handler.get_all_tkb_data(tkb_raw_data)
+
+            # Tạo file ICS với các tham số đã chọn
+            file_path = self.tkb_handler.create_ics_file(
+                all_tkb_data,
+                user_id,
+                week_offset,
+                selected_subjects,
+                time_range
+            )
+
+            if file_path and os.path.exists(file_path):
+                # Tạo thông báo kết quả
+                selected_names = []
+                for ma_hp in selected_subjects:
+                    if ma_hp in subjects_dict:
+                        subj = subjects_dict[ma_hp]
+                        selected_names.append(subj.get("ten_hp", ma_hp))
+
+                subject_list = ", ".join(selected_names) if selected_names else "tất cả các môn"
+
+                caption = f"🗓️ *File iCalendar thời khóa biểu*\n\n" \
+                          f"Môn học: {subject_list}\n" \
+                          f"Thời gian: {time_label}"
+
+                try:
+                    await query.message.reply_document(
+                        document=open(file_path, 'rb'),
+                        filename=f"tkb_{user_id}.ics",
+                        caption=caption,
+                        parse_mode="Markdown"
+                    )
+                    # Xóa tin nhắn menu cũ
+                    await query.message.delete()
+                except Exception as e:
+                    logger.error(f"Lỗi gửi file ICS cho user {user_id}: {e}")
+                    await query.message.reply_text("Có lỗi xảy ra khi gửi file.")
+                finally:
+                    os.remove(file_path)
+            else:
+                await query.message.reply_text("⚠️ Không có lịch học nào phù hợp với bộ lọc đã chọn.")
+        else:
+            await query.message.reply_text("⚠️ Không tìm thấy dữ liệu TKB. Vui lòng thử lại.")
+
+        # Xóa dữ liệu tạm sau khi hoàn thành
+        context.user_data.pop("tkb_subjects", None)
+        context.user_data.pop("selected_subjects", None)
+        context.user_data.pop("tkb_subjects_dict", None)
+        context.user_data.pop("tkb_week_offset", None)
     
     def setup_handlers(self, application: Application) -> None:
         """Thiết lập các handler cho bot"""
