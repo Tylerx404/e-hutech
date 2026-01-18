@@ -60,7 +60,7 @@ class DiemHandler:
             if not token:
                 return {
                     "success": False,
-                    "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /login để đăng nhập.",
+                    "message": "Bạn chưa đăng nhập. Vui lòng sử dụng /dangnhap để đăng nhập.",
                     "data": None
                 }
 
