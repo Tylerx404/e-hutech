@@ -148,23 +148,7 @@ class LogoutHandler:
                 "error": True,
                 "message": f"Lỗi không xác định: {str(e)}"
             }
-    
-    async def _save_logout_response(self, telegram_user_id: int, response_data: Dict[str, Any]) -> bool:
-        """
-        Lưu response từ API đăng xuất vào database
-        
-        Args:
-            telegram_user_id: ID của người dùng trên Telegram
-            response_data: Dữ liệu response từ API
-            
-        Returns:
-            True nếu lưu thành công, False nếu có lỗi
-        """
-        # This method is not implemented in the new async db_manager yet.
-        # It can be added later if needed.
-        logger.warning("save_logout_response is not implemented in the new db_manager.")
-        return True
-    
+
     async def _get_user_token(self, telegram_user_id: int) -> Optional[str]:
         """
         Lấy token của người dùng từ database. API Logout cần token chính.
