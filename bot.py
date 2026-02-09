@@ -26,6 +26,7 @@ from handlers.lich_thi_handler import LichThiHandler
 from handlers.diem_handler import DiemHandler
 from handlers.hoc_phan_handler import HocPhanHandler
 from handlers.diem_danh_handler import DiemDanhHandler
+from handlers.danh_sach_handler import DanhSachHandler
 from handlers.vi_tri_handler import ViTriHandler
 from utils.utils import generate_uuid
 
@@ -52,6 +53,7 @@ class HutechBot:
         self.hoc_phan_handler = HocPhanHandler(self.db_manager, self.cache_manager)
         self.diem_danh_handler = DiemDanhHandler(self.db_manager, self.cache_manager)
         self.vi_tri_handler = ViTriHandler(self.db_manager)
+        self.danh_sach_handler = DanhSachHandler(self.db_manager, self.cache_manager, self.logout_handler)
         
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /start"""
@@ -201,93 +203,11 @@ Các lệnh có sẵn:
 
     async def danhsach_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /danhsach - Hiển thị danh sách tài khoản đã đăng nhập"""
-        user_id = update.effective_user.id
-
-        accounts = await self.db_manager.get_user_accounts(user_id)
-
-        if not accounts:
-            await update.message.reply_text("Bạn chưa đăng nhập tài khoản nào.", reply_to_message_id=update.message.message_id)
-            return
-
-        # Tạo menu hiển thị danh sách tài khoản
-        keyboard = []
-        for acc in accounts:
-            ho_ten = acc.get('ho_ten') or acc.get('username', 'Unknown')
-            marker = "✅ " if acc.get('is_active') else ""
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{marker}{ho_ten}",
-                    callback_data=f"switch_account_{acc['username']}"
-                )
-            ])
-
-        # Nút đăng xuất tất cả
-        keyboard.append([
-            InlineKeyboardButton("🚪 Đăng xuất tất cả", callback_data="logout_all")
-        ])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            "📋 *Danh sách tài khoản*\n\nChọn tài khoản để chuyển đổi:",
-            reply_markup=reply_markup,
-            parse_mode="Markdown",
-            reply_to_message_id=update.message.message_id
-        )
+        await self.danh_sach_handler.danhsach_command(update, context)
 
     async def danhsach_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ menu danh sách tài khoản"""
-        query = update.callback_query
-        user_id = query.from_user.id
-        callback_data = query.data
-
-        if callback_data.startswith("switch_account_"):
-            username = callback_data.split("_")[2]
-            await self.db_manager.set_active_account(user_id, username)
-            await self.cache_manager.clear_user_cache(user_id)
-            await query.answer(f"Đã chuyển sang tài khoản: {username}")
-
-            # Refresh menu
-            await self._refresh_danhsach_menu(query, context)
-
-        elif callback_data == "logout_all":
-            # Xóa tất cả tài khoản
-            result = await self.logout_handler.handle_logout(user_id, logout_all=True)
-            await query.edit_message_text(result["message"])
-
-    async def _refresh_danhsach_menu(self, query, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Refresh menu danh sách tài khoản"""
-        user_id = query.from_user.id
-        accounts = await self.db_manager.get_user_accounts(user_id)
-
-        if not accounts:
-            await query.edit_message_text("Bạn chưa đăng nhập tài khoản nào.")
-            return
-
-        # Tạo menu hiển thị danh sách tài khoản
-        keyboard = []
-        for acc in accounts:
-            ho_ten = acc.get('ho_ten') or acc.get('username', 'Unknown')
-            marker = "✅ " if acc.get('is_active') else ""
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{marker}{ho_ten}",
-                    callback_data=f"switch_account_{acc['username']}"
-                )
-            ])
-
-        # Nút đăng xuất tất cả
-        keyboard.append([
-            InlineKeyboardButton("🚪 Đăng xuất tất cả", callback_data="logout_all")
-        ])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            "📋 *Danh sách tài khoản*\n\nChọn tài khoản để chuyển đổi:",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
+        await self.danh_sach_handler.danhsach_callback(update, context)
     
     async def tkb_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /tkb"""
