@@ -26,6 +26,7 @@ from handlers.lich_thi_handler import LichThiHandler
 from handlers.diem_handler import DiemHandler
 from handlers.hoc_phan_handler import HocPhanHandler
 from handlers.diem_danh_handler import DiemDanhHandler
+from handlers.vi_tri_handler import ViTriHandler
 from utils.utils import generate_uuid
 
 # Cấu hình logging
@@ -50,6 +51,7 @@ class HutechBot:
         self.diem_handler = DiemHandler(self.db_manager, self.cache_manager)
         self.hoc_phan_handler = HocPhanHandler(self.db_manager, self.cache_manager)
         self.diem_danh_handler = DiemDanhHandler(self.db_manager, self.cache_manager)
+        self.vi_tri_handler = ViTriHandler(self.db_manager)
         
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /start"""
@@ -58,6 +60,7 @@ class HutechBot:
             f"Chào {user.mention_html()}! Tôi là bot HUTECH.\n\n"
             f"/dangnhap để đăng nhập vào hệ thống HUTECH.\n"
             f"/danhsach để xem danh sách tài khoản đã đăng nhập.\n"
+            f"/vitri để cài đặt vị trí điểm danh mặc định.\n"
             f"/diemdanh để điểm danh.\n"
             f"/tkb để xem thời khóa biểu của bạn.\n"
             f"/lichthi để xem lịch thi của bạn.\n"
@@ -75,6 +78,7 @@ Các lệnh có sẵn:
 
 /dangnhap - Đăng nhập vào hệ thống HUTECH
 /danhsach - Xem danh sách tài khoản đã đăng nhập
+/vitri - Cài đặt vị trí điểm danh mặc định
 /diemdanh - Điểm danh
 /tkb - Xem thời khóa biểu
 /lichthi - Xem lịch thi
@@ -439,31 +443,140 @@ Các lệnh có sẵn:
     async def diemdanh_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /diemdanh"""
         user_id = update.effective_user.id
-        
+
         # Kiểm tra xem người dùng đã đăng nhập chưa
         if not await self.db_manager.is_user_logged_in(user_id):
             await update.message.reply_text("Bạn chưa đăng nhập. Vui lòng /dangnhap để đăng nhập.", reply_to_message_id=update.message.message_id)
             return
-        
-        # Lấy danh sách campus để hiển thị menu
-        result = await self.diem_danh_handler.handle_diem_danh_menu(user_id)
-        
-        if result["success"]:
-            # Định dạng dữ liệu campus thành menu
-            message = self.diem_danh_handler.format_campus_menu_message()
-            
-            # Tạo keyboard cho các nút chọn campus
-            keyboard = self.diem_danh_handler.format_campus_keyboard()
+
+        # Kiểm tra xem user có vị trí đã lưu không
+        preferred_campus = await self.vi_tri_handler.get_user_preferred_campus(user_id)
+
+        if preferred_campus:
+            # Có vị trí đã lưu → hiện bàn phím số ngay
+            context.user_data["selected_campus"] = preferred_campus
+
+            # Hiển thị tin nhắn yêu cầu nhập mã QR với bàn phím số
+            message = self.diem_danh_handler.format_diem_danh_numeric_message(preferred_campus)
+
+            # Tạo bàn phím số
+            keyboard = self.diem_danh_handler.format_diem_danh_numeric_keyboard()
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                message,
+
+            # Hiển thị trạng thái nhập số hiện tại
+            display = self.diem_danh_handler.format_diem_danh_numeric_display("")
+
+            sent_message = await update.message.reply_text(
+                text=f"{message}\n\n{display}",
                 reply_markup=reply_markup,
                 parse_mode="Markdown",
                 reply_to_message_id=update.message.message_id
             )
+
+            # Lưu trạng thái nhập số
+            context.user_data["numeric_input"] = ""
+            context.user_data["numeric_message_id"] = sent_message.message_id
         else:
-            await update.message.reply_text(f"Không thể hiển thị menu campus: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+            # Không có vị trí đã lưu → hiển thị menu chọn campus
+            result = await self.diem_danh_handler.handle_diem_danh_menu(user_id)
+
+            if result["success"]:
+                # Định dạng dữ liệu campus thành menu
+                message = self.diem_danh_handler.format_campus_menu_message()
+
+                # Tạo keyboard cho các nút chọn campus
+                keyboard = self.diem_danh_handler.format_campus_keyboard()
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                # Thêm thông báo về /vitri
+                message += "\n\n💡 *Tip:* Bạn có thể dùng /vitri để lưu vị trí mặc định và bỏ qua bước này."
+
+                await update.message.reply_text(
+                    message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                    reply_to_message_id=update.message.message_id
+                )
+            else:
+                await update.message.reply_text(f"Không thể hiển thị menu campus: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+
+    async def vitri_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /vitri - Quản lý vị trí điểm danh"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xem người dùng đã đăng nhập chưa
+        if not await self.db_manager.is_user_logged_in(user_id):
+            await update.message.reply_text("Bạn chưa đăng nhập. Vui lòng /dangnhap để đăng nhập.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Lấy campus ưu tiên đã lưu
+        preferred_campus = await self.vi_tri_handler.get_user_preferred_campus(user_id)
+
+        # Định dạng tin nhắn menu
+        message = self.vi_tri_handler.format_vitri_menu(preferred_campus)
+
+        # Tạo keyboard
+        keyboard = self.vi_tri_handler.format_vitri_keyboard(preferred_campus)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            message,
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+            reply_to_message_id=update.message.message_id
+        )
+
+    async def vitri_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ menu /vitri"""
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        # Lấy callback_data
+        callback_data = query.data
+
+        if callback_data.startswith("vitri_select_"):
+            # Chọn campus - vitri_select_ có 13 ký tự
+            campus_name = callback_data[13:]
+            logger.info(f"Vitri callback data: raw='{callback_data}', campus='{campus_name}'")
+
+            # Lưu vào DB
+            success = await self.vi_tri_handler.set_user_preferred_campus(user_id, campus_name)
+
+            if success:
+                await query.answer(f"Đã lưu vị trí: {campus_name}")
+
+                # Refresh menu
+                message = self.vi_tri_handler.format_vitri_menu(campus_name)
+                keyboard = self.vi_tri_handler.format_vitri_keyboard(campus_name)
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.answer("Lỗi lưu vị trí!", show_alert=True)
+
+        elif callback_data == "vitri_delete":
+            # Xóa vị trí đã lưu (bao gồm cả dữ liệu lỗi có dấu _ ở đầu)
+            success = await self.vi_tri_handler.delete_user_preferred_campus(user_id)
+
+            if success:
+                await query.answer("Đã xóa vị trí")
+
+                # Refresh menu
+                message = self.vi_tri_handler.format_vitri_menu(None)
+                keyboard = self.vi_tri_handler.format_vitri_keyboard(None)
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.answer("Lỗi xóa vị trí!", show_alert=True)
     
     async def diemdanh_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút chọn campus"""
@@ -474,8 +587,11 @@ Các lệnh có sẵn:
         callback_data = query.data
         
         if callback_data.startswith("diemdanh_campus_"):
-            campus_name = callback_data[16:]  # Bỏ "diemdanh_campus_" prefix
-            
+            campus_name = callback_data[15:]  # Bỏ "diemdanh_campus_" prefix (15 chars)
+
+            # Lưu campus đã chọn vào DB
+            await self.vi_tri_handler.set_user_preferred_campus(user_id, campus_name)
+
             # Hiển thị thông báo đang xử lý
             await query.answer("Đang chuẩn bị điểm danh...")
             
@@ -1440,6 +1556,7 @@ Các lệnh có sẵn:
         application.add_handler(CommandHandler("trogiup", self.help_command))
         application.add_handler(CommandHandler("dangxuat", self.logout_command))
         application.add_handler(CommandHandler("danhsach", self.danhsach_command))
+        application.add_handler(CommandHandler("vitri", self.vitri_command))
 
         # Conversation handler cho đăng nhập
         conv_handler = ConversationHandler(
@@ -1458,6 +1575,7 @@ Các lệnh có sẵn:
         application.add_handler(CallbackQueryHandler(self.diemdanh_callback, pattern="^diemdanh_"))
         application.add_handler(CallbackQueryHandler(self.diemdanh_numeric_callback, pattern="^num_"))
         application.add_handler(CallbackQueryHandler(self.danhsach_callback, pattern="^(switch_account_|logout_all)"))
+        application.add_handler(CallbackQueryHandler(self.vitri_callback, pattern="^vitri_"))
 
         application.add_handler(conv_handler)
 

@@ -53,6 +53,7 @@ class DatabaseManager:
                         password TEXT NOT NULL,
                         device_uuid TEXT NOT NULL,
                         is_active BOOLEAN DEFAULT FALSE,
+                        preferred_campus TEXT,
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(telegram_user_id, username)
@@ -70,6 +71,11 @@ class DatabaseManager:
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(telegram_user_id, username)
                     )
+                ''')
+
+                # Migration: Thêm cột preferred_campus nếu chưa tồn tại
+                await conn.execute('''
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_campus TEXT
                 ''')
 
                 # Các bảng khác sẽ được tạo tương tự khi cần
@@ -337,3 +343,40 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting device UUID for user {telegram_user_id}/{username}: {e}")
             return None
+
+    async def get_user_preferred_campus(self, telegram_user_id: int) -> Optional[str]:
+        """Lấy campus ưu tiên của người dùng."""
+        query = "SELECT preferred_campus FROM users WHERE telegram_user_id = $1 LIMIT 1"
+        try:
+            async with self.pool.acquire() as conn:
+                record = await conn.fetchrow(query, telegram_user_id)
+            if record and record['preferred_campus']:
+                return record['preferred_campus']
+            return None
+        except Exception as e:
+            logger.error(f"Error getting preferred campus for user {telegram_user_id}: {e}")
+            return None
+
+    async def set_user_preferred_campus(self, telegram_user_id: int, campus_name: str) -> bool:
+        """Lưu campus ưu tiên cho người dùng."""
+        query = "UPDATE users SET preferred_campus = $1 WHERE telegram_user_id = $2"
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(query, campus_name, telegram_user_id)
+            logger.info(f"Preferred campus '{campus_name}' saved for user {telegram_user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting preferred campus for user {telegram_user_id}: {e}")
+            return False
+
+    async def delete_user_preferred_campus(self, telegram_user_id: int) -> bool:
+        """Xóa campus ưu tiên của người dùng."""
+        query = "UPDATE users SET preferred_campus = NULL WHERE telegram_user_id = $1"
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(query, telegram_user_id)
+            logger.info(f"Preferred campus deleted for user {telegram_user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting preferred campus for user {telegram_user_id}: {e}")
+            return False
