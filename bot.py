@@ -57,29 +57,29 @@ class HutechBot:
         await update.message.reply_html(
             f"Chào {user.mention_html()}! Tôi là bot HUTECH.\n\n"
             f"/dangnhap để đăng nhập vào hệ thống HUTECH.\n"
+            f"/danhsach để xem danh sách tài khoản đã đăng nhập.\n"
             f"/diemdanh để điểm danh.\n"
             f"/tkb để xem thời khóa biểu của bạn.\n"
             f"/lichthi để xem lịch thi của bạn.\n"
             f"/diem để xem điểm của bạn.\n"
             f"/hocphan để xem thông tin học phần.\n"
-            f"/huy để hủy quá trình đang thực hiện.\n"
             f"/trogiup để xem các lệnh có sẵn.\n"
             f"/dangxuat để đăng xuất khỏi hệ thống.",
             reply_to_message_id=update.message.message_id
         )
-    
+
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /help"""
         help_text = """
 Các lệnh có sẵn:
 
 /dangnhap - Đăng nhập vào hệ thống HUTECH
+/danhsach - Xem danh sách tài khoản đã đăng nhập
 /diemdanh - Điểm danh
 /tkb - Xem thời khóa biểu
 /lichthi - Xem lịch thi
 /diem - Xem điểm
 /hocphan - Xem thông tin học phần
-/huy - Hủy quá trình đang thực hiện
 /trogiup - Hiển thị trợ giúp
 /dangxuat - Đăng xuất khỏi hệ thống
         """
@@ -88,12 +88,10 @@ Các lệnh có sẵn:
     async def login_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Bắt đầu quá trình đăng nhập"""
         user_id = update.effective_user.id
-        
-        # Kiểm tra xem người dùng đã đăng nhập chưa
-        if await self.db_manager.is_user_logged_in(user_id):
-            await update.message.reply_text("Bạn đã đăng nhập rồi. /dangxuat để đăng xuất trước.", reply_to_message_id=update.message.message_id)
-            return ConversationHandler.END
-        
+
+        # Lưu message_id của lệnh /dangnhap để reply vào đó
+        context.user_data["login_command_message_id"] = update.message.message_id
+
         # Gửi tin nhắn yêu cầu nhập tài khoản và lưu message_id để xóa sau này
         sent_message = await update.message.reply_text("Vui lòng nhập tên tài khoản HUTECH của bạn:", reply_to_message_id=update.message.message_id)
         context.user_data["username_prompt_message_id"] = sent_message.message_id
@@ -120,8 +118,11 @@ Các lệnh có sẵn:
         except Exception as e:
             logger.warning(f"Không thể xóa tin nhắn yêu cầu nhập tài khoản: {e}")
         
+        # Lấy message_id của lệnh /dangnhap để reply
+        login_command_message_id = context.user_data.get("login_command_message_id")
+
         # Gửi tin nhắn yêu cầu nhập mật khẩu và lưu message_id để xóa sau này
-        sent_message = await update.message.reply_text("Vui lòng nhập mật khẩu của bạn:")
+        sent_message = await update.message.reply_text("Vui lòng nhập mật khẩu của bạn:", reply_to_message_id=login_command_message_id)
         context.user_data["password_prompt_message_id"] = sent_message.message_id
         return PASSWORD
     
@@ -129,13 +130,13 @@ Các lệnh có sẵn:
         """Nhận mật khẩu từ người dùng và thực hiện đăng nhập"""
         username = context.user_data.get("username")
         password = update.message.text
-        
+
         # Xóa tin nhắn chứa mật khẩu
         try:
             await update.message.delete()
         except Exception as e:
             logger.warning(f"Không thể xóa tin nhắn: {e}")
-        
+
         # Xóa tin nhắn yêu cầu nhập mật khẩu
         try:
             password_prompt_message_id = context.user_data.get("password_prompt_message_id")
@@ -146,83 +147,142 @@ Các lệnh có sẵn:
                 )
         except Exception as e:
             logger.warning(f"Không thể xóa tin nhắn yêu cầu nhập mật khẩu: {e}")
-        
+
         user_id = update.effective_user.id
         device_uuid = generate_uuid()
-        
+
+        # Lấy message_id của lệnh /dangnhap để reply
+        login_command_message_id = context.user_data.get("login_command_message_id")
+
         # Thực hiện đăng nhập
         result = await self.login_handler.handle_login(user_id, username, password, device_uuid)
-        
+
         if result["success"]:
-            await update.message.reply_text("Đăng nhập thành công!")
+            ho_ten = result.get("ho_ten")
+            if ho_ten:
+                await update.message.reply_text(f"Đăng nhập thành công! ({ho_ten})", reply_to_message_id=login_command_message_id)
+            else:
+                await update.message.reply_text("Đăng nhập thành công!", reply_to_message_id=login_command_message_id)
         else:
-            await update.message.reply_text(f"Đăng nhập thất bại: {result['message']}", reply_to_message_id=update.message.message_id)
-        
+            await update.message.reply_text(result["message"], reply_to_message_id=login_command_message_id, parse_mode="Markdown")
+
         # Xóa dữ liệu tạm thời
         context.user_data.clear()
-        
+
         return ConversationHandler.END
-    
-    async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Hủy quá trình đang thực hiện"""
-        # Kiểm tra xem có lệnh đang hoạt động không
-        has_active_command = False
-        
-        # Kiểm tra xem người dùng có đang trong conversation đăng nhập không
-        if context.user_data.get("username_prompt_message_id") or context.user_data.get("password_prompt_message_id"):
-            has_active_command = True
-            # Xóa tin nhắn yêu cầu nhập tài khoản nếu có
-            try:
-                username_prompt_message_id = context.user_data.get("username_prompt_message_id")
-                if username_prompt_message_id:
-                    await context.bot.delete_message(
-                        chat_id=update.effective_chat.id,
-                        message_id=username_prompt_message_id
-                    )
-            except Exception as e:
-                logger.warning(f"Không thể xóa tin nhắn yêu cầu nhập tài khoản: {e}")
-            
-            # Xóa tin nhắn yêu cầu nhập mật khẩu nếu có
-            try:
-                password_prompt_message_id = context.user_data.get("password_prompt_message_id")
-                if password_prompt_message_id:
-                    await context.bot.delete_message(
-                        chat_id=update.effective_chat.id,
-                        message_id=password_prompt_message_id
-                    )
-            except Exception as e:
-                logger.warning(f"Không thể xóa tin nhắn yêu cầu nhập mật khẩu: {e}")
-        
-        # Kiểm tra xem người dùng có đang trong quá trình điểm danh không
-        if context.user_data.get("selected_campus") or context.user_data.get("numeric_input"):
-            has_active_command = True
-        
-        # Nếu không có lệnh đang hoạt động
-        if not has_active_command:
-            await update.message.reply_text("Hiện tại không có lệnh nào đang hoạt động để hủy.", reply_to_message_id=update.message.message_id)
-            return ConversationHandler.END
-        
+
+    async def login_fallback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Fallback cho conversation đăng nhập"""
         # Xóa dữ liệu tạm thời
         context.user_data.clear()
-        await update.message.reply_text("Quá trình đang thực hiện đã bị hủy.", reply_to_message_id=update.message.message_id)
+        await update.message.reply_text("Đã hủy đăng nhập.", reply_to_message_id=update.message.message_id)
         return ConversationHandler.END
-    
+
     async def logout_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Xử lý lệnh /logout"""
+        """Xử lý lệnh /dangxuat"""
         user_id = update.effective_user.id
-        
+
         # Kiểm tra xem người dùng đã đăng nhập chưa
         if not await self.db_manager.is_user_logged_in(user_id):
             await update.message.reply_text("Bạn chưa đăng nhập.", reply_to_message_id=update.message.message_id)
             return
-        
-        # Thực hiện đăng xuất
+
+        # Thực hiện đăng xuất (xóa account active)
         result = await self.logout_handler.handle_logout(user_id)
-        
+
         if result["success"]:
-            await update.message.reply_text("Đăng xuất thành công!", reply_to_message_id=update.message.message_id)
+            await update.message.reply_text(result["message"], reply_to_message_id=update.message.message_id)
         else:
             await update.message.reply_text(f"Đăng xuất thất bại: {result['message']}", reply_to_message_id=update.message.message_id)
+
+    async def danhsach_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /danhsach - Hiển thị danh sách tài khoản đã đăng nhập"""
+        user_id = update.effective_user.id
+
+        accounts = await self.db_manager.get_user_accounts(user_id)
+
+        if not accounts:
+            await update.message.reply_text("Bạn chưa đăng nhập tài khoản nào.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Tạo menu hiển thị danh sách tài khoản
+        keyboard = []
+        for acc in accounts:
+            ho_ten = acc.get('ho_ten') or acc.get('username', 'Unknown')
+            marker = "✅ " if acc.get('is_active') else ""
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{marker}{ho_ten}",
+                    callback_data=f"switch_account_{acc['username']}"
+                )
+            ])
+
+        # Nút đăng xuất tất cả
+        keyboard.append([
+            InlineKeyboardButton("🚪 Đăng xuất tất cả", callback_data="logout_all")
+        ])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "📋 *Danh sách tài khoản*\n\nChọn tài khoản để chuyển đổi:",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+            reply_to_message_id=update.message.message_id
+        )
+
+    async def danhsach_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ menu danh sách tài khoản"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        callback_data = query.data
+
+        if callback_data.startswith("switch_account_"):
+            username = callback_data.split("_")[2]
+            await self.db_manager.set_active_account(user_id, username)
+            await query.answer(f"Đã chuyển sang tài khoản: {username}")
+
+            # Refresh menu
+            await self._refresh_danhsach_menu(query, context)
+
+        elif callback_data == "logout_all":
+            # Xóa tất cả tài khoản
+            result = await self.logout_handler.handle_logout(user_id, logout_all=True)
+            await query.edit_message_text(result["message"])
+
+    async def _refresh_danhsach_menu(self, query, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Refresh menu danh sách tài khoản"""
+        user_id = query.from_user.id
+        accounts = await self.db_manager.get_user_accounts(user_id)
+
+        if not accounts:
+            await query.edit_message_text("Bạn chưa đăng nhập tài khoản nào.")
+            return
+
+        # Tạo menu hiển thị danh sách tài khoản
+        keyboard = []
+        for acc in accounts:
+            ho_ten = acc.get('ho_ten') or acc.get('username', 'Unknown')
+            marker = "✅ " if acc.get('is_active') else ""
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{marker}{ho_ten}",
+                    callback_data=f"switch_account_{acc['username']}"
+                )
+            ])
+
+        # Nút đăng xuất tất cả
+        keyboard.append([
+            InlineKeyboardButton("🚪 Đăng xuất tất cả", callback_data="logout_all")
+        ])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "📋 *Danh sách tài khoản*\n\nChọn tài khoản để chuyển đổi:",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
     
     async def tkb_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /tkb"""
@@ -864,7 +924,7 @@ Các lệnh có sẵn:
                                 await query.message.reply_text("Không có năm học - học kỳ nào để tìm kiếm.")
                                 return
                         else:
-                            await query.message.reply_text(f"Không thể lấy danh sách năm học - học kỳ: {result_hoc_phan['message']}")
+                            await query.message.reply_text(result_hoc_phan['message'], parse_mode="Markdown")
                             return
                     
                     # Tìm kiếm học phần với năm học - học kỳ đã chọn
@@ -912,7 +972,7 @@ Các lệnh có sẵn:
                 except Exception as e:
                     await query.edit_message_text(f"Lỗi tạo file Excel: {str(e)}")
             else:
-                await query.edit_message_text(f"Không thể lấy danh sách sinh viên: {result['message']}", parse_mode="Markdown")
+                await query.edit_message_text(result['message'], parse_mode="Markdown")
         elif callback_data == "lichthi_back":
             # Xử lý khi quay lại từ lịch thi
             await query.edit_message_text(
@@ -1376,10 +1436,10 @@ Các lệnh có sẵn:
         application.add_handler(CommandHandler("lichthi", self.lich_thi_command))
         application.add_handler(CommandHandler("diem", self.diem_command))
         application.add_handler(CommandHandler("hocphan", self.hoc_phan_command))
-        application.add_handler(CommandHandler("huy", self.cancel_command))
         application.add_handler(CommandHandler("trogiup", self.help_command))
         application.add_handler(CommandHandler("dangxuat", self.logout_command))
-        
+        application.add_handler(CommandHandler("danhsach", self.danhsach_command))
+
         # Conversation handler cho đăng nhập
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler("dangnhap", self.login_command)],
@@ -1387,18 +1447,19 @@ Các lệnh có sẵn:
                 USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.username_received)],
                 PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.password_received)],
             },
-            fallbacks=[CommandHandler("huy", self.cancel_command)],
+            fallbacks=[CommandHandler("dangnhap", self.login_fallback)],
         )
-        
+
         # Handler cho callback queries
         application.add_handler(CallbackQueryHandler(self.tkb_callback, pattern="^tkb_"))
         application.add_handler(CallbackQueryHandler(self.diem_callback, pattern="^diem_"))
-        application.add_handler(CallbackQueryHandler(self.hoc_phan_callback, pattern="^(namhoc_|hocphan_|danhsach_|lichthi_)"))
+        application.add_handler(CallbackQueryHandler(self.hoc_phan_callback, pattern="^(namhoc_|hocphan_|lichthi_)"))
         application.add_handler(CallbackQueryHandler(self.diemdanh_callback, pattern="^diemdanh_"))
         application.add_handler(CallbackQueryHandler(self.diemdanh_numeric_callback, pattern="^num_"))
-        
+        application.add_handler(CallbackQueryHandler(self.danhsach_callback, pattern="^(switch_account_|logout_all)"))
+
         application.add_handler(conv_handler)
-        
+
         # Handler cho nhập mã QR (chỉ hoạt động khi không có conversation nào đang diễn ra)
         # Đặt ở group=-1 để đảm bảo nó chỉ được xử lý sau khi các handler khác không khớp
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.diemdanh_code_received), group=-1)
@@ -1458,7 +1519,7 @@ Các lệnh có sẵn:
                 auto_refresh_task.cancel()
 
             # Đảm bảo đóng các kết nối khi bot dừng
-            if application.updater and application.updater.is_running:
+            if application.updater and application.updater.running:
                 await application.updater.stop()
             await application.stop()
             await application.shutdown()
