@@ -114,7 +114,7 @@ class CacheManager:
             r = self.get_redis_client()
             # Xóa các cache theo pattern
             keys_to_delete = []
-            async for key in r.scan_iter(f"*:{telegram_user_id}"):
+            async for key in r.scan_iter(f"*:{telegram_user_id}*"):
                 keys_to_delete.append(key)
             
             if keys_to_delete:

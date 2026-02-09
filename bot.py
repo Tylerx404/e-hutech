@@ -240,6 +240,7 @@ Các lệnh có sẵn:
         if callback_data.startswith("switch_account_"):
             username = callback_data.split("_")[2]
             await self.db_manager.set_active_account(user_id, username)
+            await self.cache_manager.clear_user_cache(user_id)
             await query.answer(f"Đã chuyển sang tài khoản: {username}")
 
             # Refresh menu
@@ -394,7 +395,7 @@ Các lệnh có sẵn:
                 reply_to_message_id=update.message.message_id
             )
         else:
-            await update.message.reply_text(f"Không thể lấy điểm: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+            await update.message.reply_text(result['message'], reply_to_message_id=update.message.message_id, parse_mode="Markdown")
     
     async def hoc_phan_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /hocphan"""
@@ -1023,7 +1024,7 @@ Các lệnh có sẵn:
                     else:
                         await query.edit_message_text("Không có học kỳ cũ hơn để hiển thị.")
                 else:
-                    await query.edit_message_text(f"Không thể lấy điểm: {result['message']}", parse_mode="Markdown")
+                    await query.edit_message_text(result['message'], parse_mode="Markdown")
             elif hocky_key == "back":
                 # Quay lại menu chính
                 result = await self.diem_handler.handle_diem(user_id)
@@ -1453,7 +1454,7 @@ Các lệnh có sẵn:
         # Handler cho callback queries
         application.add_handler(CallbackQueryHandler(self.tkb_callback, pattern="^tkb_"))
         application.add_handler(CallbackQueryHandler(self.diem_callback, pattern="^diem_"))
-        application.add_handler(CallbackQueryHandler(self.hoc_phan_callback, pattern="^(namhoc_|hocphan_|lichthi_)"))
+        application.add_handler(CallbackQueryHandler(self.hoc_phan_callback, pattern="^(namhoc_|hocphan_|lichthi_|danhsach_)"))
         application.add_handler(CallbackQueryHandler(self.diemdanh_callback, pattern="^diemdanh_"))
         application.add_handler(CallbackQueryHandler(self.diemdanh_numeric_callback, pattern="^num_"))
         application.add_handler(CallbackQueryHandler(self.danhsach_callback, pattern="^(switch_account_|logout_all)"))

@@ -37,14 +37,14 @@ class Config:
         
         # Headers cho API
         self.HUTECH_STUDENT_HEADERS = {
-            "user-agent": "Dart/3.5 (dart:io)",
+            "user-agent": "Dart/3.8 (dart:io)",
             "app-key": "SINHVIEN_DAIHOC",
             "content-type": "application/json"
         }
         
         # Headers cho API thời khóa biểu
         self.HUTECH_MOBILE_HEADERS = {
-            "user-agent": "Dart/3.5 (dart:io)",
+            "user-agent": "Dart/3.8 (dart:io)",
             "app-key": "MOBILE_HUTECH",
             "content-type": "application/json"
         }

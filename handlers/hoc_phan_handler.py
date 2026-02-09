@@ -882,6 +882,19 @@ class HocPhanHandler:
                 message += f"\n*{ngay_hoc}* ({gio_bat_dau} - {gio_ket_thuc})\n"
                 message += f"   - *Trạng thái:* {status_icon} {status_text}\n"
                 message += f"   - *Phòng:* `{ma_phong}`\n"
+
+                # Lấy thông tin chi tiết từ QR code điểm danh
+                chi_tiet_dd = lich_trinh.get("diem_danh") or {}
+                chi_tiet_list = chi_tiet_dd.get("chi_tiet", [])
+                if chi_tiet_list:
+                    qr_data = (chi_tiet_list[0].get("diem_danh_qr_code") or {}).get("data", {})
+                    thoi_gian_dd = qr_data.get("time")
+                    location = qr_data.get("location", {})
+                    dia_diem = location.get("display_name")
+                    if thoi_gian_dd:
+                        message += f"   - *Thời gian ĐD:* `{thoi_gian_dd}`\n"
+                    if dia_diem:
+                        message += f"   - *Vị trí:* `{dia_diem}`\n"
             
             if timestamp_str:
                 try:
