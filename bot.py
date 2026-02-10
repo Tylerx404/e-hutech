@@ -15,6 +15,7 @@ from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
+from telegram.error import BadRequest
 
 from config.config import Config
 from database.db_manager import DatabaseManager
@@ -26,6 +27,7 @@ from handlers.lich_thi_handler import LichThiHandler
 from handlers.diem_handler import DiemHandler
 from handlers.hoc_phan_handler import HocPhanHandler
 from handlers.diem_danh_handler import DiemDanhHandler
+from handlers.diem_danh_tat_ca_handler import DiemDanhTatCaHandler
 from handlers.danh_sach_handler import DanhSachHandler
 from handlers.vi_tri_handler import ViTriHandler
 from utils.utils import generate_uuid
@@ -52,6 +54,7 @@ class HutechBot:
         self.diem_handler = DiemHandler(self.db_manager, self.cache_manager)
         self.hoc_phan_handler = HocPhanHandler(self.db_manager, self.cache_manager)
         self.diem_danh_handler = DiemDanhHandler(self.db_manager, self.cache_manager)
+        self.diem_danh_tat_ca_handler = DiemDanhTatCaHandler(self.db_manager, self.cache_manager)
         self.vi_tri_handler = ViTriHandler(self.db_manager)
         self.danh_sach_handler = DanhSachHandler(self.db_manager, self.cache_manager, self.logout_handler)
         
@@ -63,7 +66,8 @@ class HutechBot:
             f"/dangnhap để đăng nhập vào hệ thống HUTECH.\n"
             f"/danhsach để xem danh sách tài khoản đã đăng nhập.\n"
             f"/vitri để cài đặt vị trí điểm danh mặc định.\n"
-            f"/diemdanh để điểm danh.\n"
+            f"/diemdanh để điểm danh cho tài khoản hiện tại.\n"
+            f"/diemdanhtatca để điểm danh tất cả tài khoản cùng lúc.\n"
             f"/tkb để xem thời khóa biểu của bạn.\n"
             f"/lichthi để xem lịch thi của bạn.\n"
             f"/diem để xem điểm của bạn.\n"
@@ -81,7 +85,8 @@ Các lệnh có sẵn:
 /dangnhap - Đăng nhập vào hệ thống HUTECH
 /danhsach - Xem danh sách tài khoản đã đăng nhập
 /vitri - Cài đặt vị trí điểm danh mặc định
-/diemdanh - Điểm danh
+/diemdanh - Điểm danh cho tài khoản hiện tại
+/diemdanhtatca - Điểm danh tất cả tài khoản cùng lúc
 /tkb - Xem thời khóa biểu
 /lichthi - Xem lịch thi
 /diem - Xem điểm
@@ -677,10 +682,10 @@ Các lệnh có sẵn:
         """Xử lý callback từ bàn phím số"""
         query = update.callback_query
         user_id = query.from_user.id
-        
+
         # Lấy callback_data
         callback_data = query.data
-        
+
         # Lấy trạng thái nhập số hiện tại
         current_input = context.user_data.get("numeric_input", "")
         
@@ -734,14 +739,297 @@ Các lệnh có sẵn:
             keyboard = self.diem_danh_handler.format_diem_danh_numeric_keyboard()
             reply_markup = InlineKeyboardMarkup(keyboard)
 
+            try:
+                await query.edit_message_text(
+                    text=f"{message}\n\n{display}",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            except BadRequest:
+                # Message không thay đổi, bỏ qua lỗi
+                pass
+
+        await query.answer()
+
+    async def diemdanhtatca_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /diemdanhtatca"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xem người dùng đã đăng nhập chưa
+        if not await self.db_manager.is_user_logged_in(user_id):
+            await update.message.reply_text("Bạn chưa đăng nhập. Vui lòng /dangnhap để đăng nhập.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Kiểm tra xem user có vị trí đã lưu không
+        preferred_campus = await self.vi_tri_handler.get_user_preferred_campus(user_id)
+
+        if preferred_campus:
+            # Có vị trí đã lưu → hiện bàn phím số ngay
+            context.user_data["selected_campus_tatca"] = preferred_campus
+
+            # Lấy số lượng tài khoản
+            accounts = await self.db_manager.get_user_accounts(user_id)
+            accounts_count = len(accounts) if accounts else 0
+
+            # Hiển thị tin nhắn yêu cầu nhập mã QR với bàn phím số
+            message = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_message(preferred_campus, accounts_count)
+
+            # Tạo bàn phím số
+            keyboard = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_keyboard()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Hiển thị trạng thái nhập số hiện tại
+            display = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_display("")
+
+            sent_message = await update.message.reply_text(
+                text=f"{message}\n\n{display}",
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+                reply_to_message_id=update.message.message_id
+            )
+
+            # Lưu trạng thái nhập số
+            context.user_data["numeric_input_tatca"] = ""
+            context.user_data["numeric_message_id_tatca"] = sent_message.message_id
+        else:
+            # Không có vị trí đã lưu → hiển thị menu chọn campus
+            result = await self.diem_danh_tat_ca_handler.handle_diem_danh_tat_ca_menu(user_id)
+
+            if result["success"]:
+                # Định dạng dữ liệu campus thành menu
+                message = self.diem_danh_tat_ca_handler.format_campus_menu_message() if hasattr(self.diem_danh_tat_ca_handler, 'format_campus_menu_message') else f"📍 *Chọn Vị Trí Điểm Danh Tất Cả*\n\nSẽ điểm danh cho {result['data']['accounts_count']} tài khoản.\n\nVui lòng chọn campus:"
+
+                # Tạo keyboard cho các nút chọn campus
+                keyboard = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_keyboard()
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await update.message.reply_text(
+                    message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                    reply_to_message_id=update.message.message_id
+                )
+            else:
+                await update.message.reply_text(f"Không thể hiển thị menu campus: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+
+    async def diemdanhtatca_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ các nút chọn campus cho điểm danh tất cả"""
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        # Lấy callback_data
+        callback_data = query.data
+
+        if callback_data.startswith("diemdanhtatca_campus_"):
+            campus_name = callback_data[19:]  # Bỏ "diemdanhtatca_campus_" prefix (19 chars)
+
+            # Lưu campus đã chọn vào DB
+            await self.vi_tri_handler.set_user_preferred_campus(user_id, campus_name)
+
+            # Hiển thị thông báo đang xử lý
+            await query.answer("Đang chuẩn bị điểm danh...")
+
+            # Lưu campus đã chọn vào context
+            context.user_data["selected_campus_tatca"] = campus_name
+
+            # Lấy số lượng tài khoản
+            accounts = await self.db_manager.get_user_accounts(user_id)
+            accounts_count = len(accounts) if accounts else 0
+
+            # Hiển thị tin nhắn yêu cầu nhập mã QR với bàn phím số
+            message = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_message(campus_name, accounts_count)
+
+            # Tạo bàn phím số
+            keyboard = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_keyboard()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Hiển thị trạng thái nhập số hiện tại
+            display = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_display("")
+
+            # Gửi tin nhắn mới với yêu cầu nhập mã QR và bàn phím số
             await query.edit_message_text(
                 text=f"{message}\n\n{display}",
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
+            # Lưu trạng thái nhập số
+            context.user_data["numeric_input_tatca"] = ""
+            context.user_data["numeric_message_id_tatca"] = query.message.message_id
+
+    async def diemdanhtatca_code_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Nhận mã QR từ người dùng và thực hiện điểm danh tất cả"""
+        user_id = update.effective_user.id
+        code = update.message.text.strip()
+
+        # Kiểm tra xem người dùng có đang trong trạng thái điểm danh tất cả không
+        if "selected_campus_tatca" not in context.user_data:
+            # Người dùng không đang trong trạng thái điểm danh tất cả, bỏ qua
+            return
+
+        # Lấy campus đã chọn và message_id của menu
+        campus_name = context.user_data.get("selected_campus_tatca")
+        numeric_message_id = context.user_data.get("numeric_message_id_tatca")
+
+        if not campus_name:
+            await update.message.reply_text("Lỗi: Không tìm thấy campus đã chọn. Vui lòng thử lại.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Xóa tin nhắn chứa mã QR của người dùng
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Không thể xóa tin nhắn mã QR: {e}")
+
+        # Kiểm tra mã điểm danh
+        if not code.isdigit() or len(code) != 4:
+            # Xóa tin nhắn menu cũ
+            if numeric_message_id:
+                try:
+                    await context.bot.delete_message(
+                        chat_id=update.effective_chat.id,
+                        message_id=numeric_message_id
+                    )
+                except Exception as e:
+                    logger.warning(f"Không thể xóa tin nhắn menu điểm danh: {e}")
+
+            # Gửi thông báo lỗi và lưu message_id
+            error_message = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Mã điểm danh phải là 4 chữ số. Vui lòng nhập lại."
+            )
+            context.user_data["diemdanh_tatca_error_message_id"] = error_message.message_id
+
+            # Gửi lại menu nhập mã
+            accounts = await self.db_manager.get_user_accounts(user_id)
+            accounts_count = len(accounts) if accounts else 0
+            message = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_message(campus_name, accounts_count)
+            keyboard = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_keyboard()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            display = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_display("")
+
+            new_menu_message = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"{message}\n\n{display}",
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+            context.user_data["numeric_message_id_tatca"] = new_menu_message.message_id
+            context.user_data["numeric_input_tatca"] = ""
+            return
+
+        # Xóa tin nhắn lỗi nếu có
+        error_message_id = context.user_data.pop("diemdanh_tatca_error_message_id", None)
+        if error_message_id:
+            try:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=error_message_id
+                )
+            except Exception as e:
+                logger.warning(f"Không thể xóa tin nhắn lỗi điểm danh: {e}")
+
+        # Xóa tin nhắn menu bàn phím số
+        if numeric_message_id:
+            try:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=numeric_message_id
+                )
+            except Exception as e:
+                logger.warning(f"Không thể xóa tin nhắn menu điểm danh: {e}")
+
+        # Gửi tin nhắn tạm thời
+        processing_message = await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Đang gửi mã điểm danh cho tất cả tài khoản..."
+        )
+
+        # Thực hiện điểm danh tất cả
+        result = await self.diem_danh_tat_ca_handler.handle_submit_diem_danh_tat_ca(user_id, code, campus_name)
+
+        # Cập nhật tin nhắn với kết quả
+        try:
+            await processing_message.edit_text(result['message'], parse_mode="Markdown")
+        except Exception:
+            # Nếu lỗi parse Markdown, gửi lại dưới dạng text thường
+            await processing_message.edit_text(result['message'])
+
+        # Xóa dữ liệu tạm thời
+        context.user_data.clear()
+
+    async def diemdanhtatca_numeric_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ bàn phím số cho điểm danh tất cả"""
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        # Lấy callback_data
+        callback_data = query.data
+
+        # Lấy trạng thái nhập số hiện tại
+        current_input = context.user_data.get("numeric_input_tatca", "")
+
+        if callback_data.startswith("num_tatca_"):
+            # Xử lý các nút số
+            if callback_data == "num_tatca_exit":
+                # Thoát khỏi menu điểm danh
+                await query.edit_message_text("Đã hủy điểm danh tất cả.")
+                context.user_data.clear()
+                return
+            elif callback_data == "num_tatca_delete":
+                # Xóa ký tự cuối cùng
+                if len(current_input) > 0:
+                    current_input = current_input[:-1]
+            else:
+                # Thêm số vào chuỗi hiện tại
+                digit = callback_data[10:]  # Bỏ "num_tatca_" prefix (10 chars)
+                if len(current_input) < 4:
+                    current_input += digit
+
+            # Cập nhật trạng thái nhập số
+            context.user_data["numeric_input_tatca"] = current_input
+
+            # Nếu đã nhập đủ 4 số, tự động gửi
+            if len(current_input) == 4:
+                campus_name = context.user_data.get("selected_campus_tatca")
+                if campus_name:
+                    # Hiển thị thông báo đang gửi
+                    await query.edit_message_text("Đang gửi mã điểm danh cho tất cả tài khoản...")
+
+                    result = await self.diem_danh_tat_ca_handler.handle_submit_diem_danh_tat_ca(user_id, current_input, campus_name)
+
+                    try:
+                        await query.edit_message_text(result['message'], parse_mode="Markdown")
+                    except Exception:
+                        await query.edit_message_text(result['message'])
+
+                    context.user_data.clear()
+                    return
+                else:
+                    await query.edit_message_text("❌ Lỗi: Không tìm thấy campus đã chọn.")
+                    return
+
+            # Cập nhật hiển thị
+            display = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_display(current_input)
+            campus_name = context.user_data.get("selected_campus_tatca", "Campus")
+            accounts = await self.db_manager.get_user_accounts(user_id)
+            accounts_count = len(accounts) if accounts else 0
+            message = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_message(campus_name, accounts_count)
+            keyboard = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_keyboard()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            try:
+                await query.edit_message_text(
+                    text=f"{message}\n\n{display}",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            except BadRequest:
+                # Message không thay đổi, bỏ qua lỗi
+                pass
+
         await query.answer()
-    
+
     async def hoc_phan_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút chọn năm học - học kỳ"""
         query = update.callback_query
@@ -1469,6 +1757,7 @@ Các lệnh có sẵn:
         application.add_handler(CommandHandler("start", self.start_command))
         # Conversation handler cho đăng nhập được định nghĩa riêng
         application.add_handler(CommandHandler("diemdanh", self.diemdanh_command))
+        application.add_handler(CommandHandler("diemdanhtatca", self.diemdanhtatca_command))
         application.add_handler(CommandHandler("tkb", self.tkb_command))
         application.add_handler(CommandHandler("lichthi", self.lich_thi_command))
         application.add_handler(CommandHandler("diem", self.diem_command))
@@ -1493,6 +1782,8 @@ Các lệnh có sẵn:
         application.add_handler(CallbackQueryHandler(self.diem_callback, pattern="^diem_"))
         application.add_handler(CallbackQueryHandler(self.hoc_phan_callback, pattern="^(namhoc_|hocphan_|lichthi_|danhsach_)"))
         application.add_handler(CallbackQueryHandler(self.diemdanh_callback, pattern="^diemdanh_"))
+        application.add_handler(CallbackQueryHandler(self.diemdanhtatca_callback, pattern="^diemdanhtatca_"))
+        application.add_handler(CallbackQueryHandler(self.diemdanhtatca_numeric_callback, pattern="^num_tatca_"))
         application.add_handler(CallbackQueryHandler(self.diemdanh_numeric_callback, pattern="^num_"))
         application.add_handler(CallbackQueryHandler(self.danhsach_callback, pattern="^(switch_account_|logout_all)"))
         application.add_handler(CallbackQueryHandler(self.vitri_callback, pattern="^vitri_"))
@@ -1502,6 +1793,7 @@ Các lệnh có sẵn:
         # Handler cho nhập mã QR (chỉ hoạt động khi không có conversation nào đang diễn ra)
         # Đặt ở group=-1 để đảm bảo nó chỉ được xử lý sau khi các handler khác không khớp
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.diemdanh_code_received), group=-1)
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.diemdanhtatca_code_received), group=-1)
     
     async def auto_refresh_cache_task(self):
         """Tác vụ nền tự động xóa cache của người dùng đang đăng nhập."""

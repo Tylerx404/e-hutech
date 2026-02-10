@@ -177,12 +177,8 @@ class DiemDanhHandler:
             url = f"{self.config.HUTECH_API_BASE_URL}{self.config.HUTECH_DIEM_DANH_SUBMIT_ENDPOINT}"
             
             # Tạo headers
-            headers = {
-                "user-agent": "Dart/3.5 (dart:io)",
-                "authorization": f"JWT {token}",
-                "app-key": "MOBILE_HUTECH",
-                "content-type": "application/json"
-            }
+            headers = self.config.HUTECH_MOBILE_HEADERS.copy()
+            headers["authorization"] = f"JWT {token}"
             
             # Tạo request body
             request_data = {
