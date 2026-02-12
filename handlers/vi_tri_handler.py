@@ -53,8 +53,9 @@ class ViTriHandler:
 
             # Hiển thị vị trí hiện tại
             if preferred_campus:
-                # Escape underscores để tránh lỗi Markdown
-                escaped_campus = preferred_campus.replace('_', '\\_')
+                # Xóa dấu _ ở đầu nếu có (do lỗi dữ liệu cũ) và escape underscores còn lại
+                clean_campus = preferred_campus.lstrip('_')
+                escaped_campus = clean_campus.replace('_', '\\_')
                 message += f"✅ *Vị trí hiện tại:* {escaped_campus}\n\n"
             else:
                 message += "❌ *Chưa cài đặt vị trí*\n\n"

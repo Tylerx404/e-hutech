@@ -51,11 +51,6 @@ class DanhSachHandler:
                 )
             ])
 
-        # Nút đăng xuất tất cả
-        keyboard.append([
-            InlineKeyboardButton("🚪 Đăng xuất tất cả", callback_data="logout_all")
-        ])
-
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
@@ -80,11 +75,6 @@ class DanhSachHandler:
             # Refresh menu
             await self._refresh_danhsach_menu(query, context)
 
-        elif callback_data == "logout_all":
-            # Xóa tất cả tài khoản
-            result = await self.logout_handler.handle_logout(user_id, logout_all=True)
-            await query.edit_message_text(result["message"])
-
     async def _refresh_danhsach_menu(self, query, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Refresh menu danh sách tài khoản"""
         user_id = query.from_user.id
@@ -105,11 +95,6 @@ class DanhSachHandler:
                     callback_data=f"switch_account_{acc['username']}"
                 )
             ])
-
-        # Nút đăng xuất tất cả
-        keyboard.append([
-            InlineKeyboardButton("🚪 Đăng xuất tất cả", callback_data="logout_all")
-        ])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
