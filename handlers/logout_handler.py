@@ -10,6 +10,9 @@ import logging
 import aiohttp
 from typing import Dict, Any, Optional
 
+from telegram import Update
+from telegram.ext import ContextTypes, Application, CommandHandler
+
 from config.config import Config
 
 logger = logging.getLogger(__name__)
@@ -247,3 +250,26 @@ class LogoutHandler:
                 "success": False,
                 "message": f"Lỗi đăng xuất: {str(e)}"
             }
+
+    # ==================== Command Methods ====================
+
+    async def logout_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /dangxuat"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xem người dùng đã đăng nhập chưa
+        if not await self.db_manager.is_user_logged_in(user_id):
+            await update.message.reply_text("Bạn chưa đăng nhập.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Thực hiện đăng xuất (xóa account active)
+        result = await self.handle_logout(user_id)
+
+        if result["success"]:
+            await update.message.reply_text(result["message"], reply_to_message_id=update.message.message_id)
+        else:
+            await update.message.reply_text(f"Đăng xuất thất bại: {result['message']}", reply_to_message_id=update.message.message_id)
+
+    def register_commands(self, application: Application) -> None:
+        """Đăng ký command handlers với Application"""
+        application.add_handler(CommandHandler("dangxuat", self.logout_command))

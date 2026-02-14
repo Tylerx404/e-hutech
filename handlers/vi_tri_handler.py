@@ -8,7 +8,9 @@ Handler xử lý vị trí điểm danh (campus)
 import logging
 from typing import Dict, Any, Optional, List
 
-from telegram import ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
+from telegram.error import BadRequest
 
 from config.config import Config
 
@@ -70,15 +72,15 @@ class ViTriHandler:
             logger.error(f"Error formatting vị trí menu message: {e}")
             return f"Lỗi định dạng menu: {str(e)}"
 
-    def format_vitri_keyboard(self, preferred_campus: Optional[str] = None) -> List[List[Dict[str, str]]]:
+    def format_vitri_keyboard(self, preferred_campus: Optional[str] = None) -> InlineKeyboardMarkup:
         """
-        Tạo keyboard cho menu vị trí
+        Tạo InlineKeyboard cho menu vị trí
 
         Args:
             preferred_campus: Campus đã lưu (nếu có)
 
         Returns:
-            Danh sách các hàng nút bấm
+            InlineKeyboardMarkup object
         """
         try:
             keyboard = []
@@ -86,31 +88,22 @@ class ViTriHandler:
             # Thêm các nút chọn campus (tối đa 2 nút mỗi hàng)
             row = []
             for i, campus_name in enumerate(CAMPUS_LOCATIONS.keys()):
-                # Thêm emoji nếu là campus đã chọn
-                display_name = campus_name
-                if campus_name == preferred_campus:
-                    display_name = f"✅ {campus_name}"
-
-                row.append({
-                    "text": display_name,
-                    "callback_data": f"vitri_select_{campus_name}"
-                })
+                row.append(InlineKeyboardButton(campus_name, callback_data=f"vitri_select_{campus_name}"))
                 if len(row) == 2 or i == len(CAMPUS_LOCATIONS) - 1:
                     keyboard.append(row)
                     row = []
 
             # Thêm nút xóa vị trí nếu có vị trí đã lưu
             if preferred_campus:
-                keyboard.append([{
-                    "text": "🗑️ Xóa vị trí đã lưu",
-                    "callback_data": "vitri_delete"
-                }])
+                keyboard.append([
+                    InlineKeyboardButton("🗑️ Xóa vị trí đã lưu", callback_data="vitri_delete")
+                ])
 
-            return keyboard
+            return InlineKeyboardMarkup(keyboard)
 
         except Exception as e:
             logger.error(f"Error creating vị trí keyboard: {e}")
-            return []
+            return InlineKeyboardMarkup([])
 
     def get_campus_location(self, campus_name: str) -> Optional[Dict[str, float]]:
         """Lấy vị trí của campus."""
@@ -120,57 +113,90 @@ class ViTriHandler:
         """Lấy danh sách tất cả campus."""
         return list(CAMPUS_LOCATIONS.keys())
 
-    def format_vitri_reply_keyboard(self, preferred_campus: Optional[str] = None) -> ReplyKeyboardMarkup:
-        """
-        Tạo ReplyKeyboard cho menu vị trí
+    # ==================== Command Methods ====================
 
-        Args:
-            preferred_campus: Campus đã lưu (nếu có)
+    async def vitri_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /vitri"""
+        user_id = update.effective_user.id
 
-        Returns:
-            ReplyKeyboardMarkup object
-        """
-        try:
-            keyboard = []
-            campuses = list(CAMPUS_LOCATIONS.keys())
+        # Lấy campus ưu tiên hiện tại
+        preferred_campus = await self.get_user_preferred_campus(user_id)
 
-            # Chia 2 cột 2 hàng cho 4 campus
-            for i in range(0, len(campuses), 2):
-                row = [KeyboardButton(campuses[i])]
-                if i + 1 < len(campuses):
-                    row.append(KeyboardButton(campuses[i + 1]))
-                keyboard.append(row)
+        # Định dạng menu
+        message = self.format_vitri_menu(preferred_campus)
 
-            # Thêm nút xóa vị trí nếu có vị trí đã lưu (1 cột 1 hàng)
-            if preferred_campus:
-                keyboard.append([KeyboardButton("🗑️ Xóa vị trí đã lưu")])
+        # Tạo keyboard
+        reply_markup = self.format_vitri_keyboard(preferred_campus)
 
-            return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+        await update.message.reply_text(
+            message,
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+            reply_to_message_id=update.message.message_id
+        )
 
-        except Exception as e:
-            logger.error(f"Error creating vị trí reply keyboard: {e}")
-            return ReplyKeyboardMarkup([], resize_keyboard=True)
+    # ==================== Callback Methods ====================
 
-    def format_campus_reply_keyboard(self) -> ReplyKeyboardMarkup:
-        """
-        Tạo ReplyKeyboard cho chọn campus (dùng chung cho diemdanh, diemdanhtatca)
+    async def vitri_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ các nút chọn vị trí"""
+        query = update.callback_query
+        user_id = query.from_user.id
 
-        Returns:
-            ReplyKeyboardMarkup object
-        """
-        try:
-            keyboard = []
-            campuses = list(CAMPUS_LOCATIONS.keys())
+        # Lấy callback_data
+        callback_data = query.data
 
-            # Chia 2 cột 2 hàng cho 4 campus
-            for i in range(0, len(campuses), 2):
-                row = [KeyboardButton(campuses[i])]
-                if i + 1 < len(campuses):
-                    row.append(KeyboardButton(campuses[i + 1]))
-                keyboard.append(row)
+        if callback_data == "vitri_delete":
+            # Xóa vị trí đã lưu
+            success = await self.delete_user_preferred_campus(user_id)
 
-            return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+            if success:
+                message = self.format_vitri_menu(None)
+                reply_markup = self.format_vitri_keyboard(None)
+            else:
+                message = "❌ *Lỗi*\n\nKhông thể xóa vị trí. Vui lòng thử lại."
+                reply_markup = InlineKeyboardMarkup([])
 
-        except Exception as e:
-            logger.error(f"Error creating campus reply keyboard: {e}")
-            return ReplyKeyboardMarkup([], resize_keyboard=True)
+            try:
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            except BadRequest as e:
+                if "Message is not modified" in str(e):
+                    await query.answer("Vị trí đã được xóa.")
+                else:
+                    raise
+
+        elif callback_data.startswith("vitri_select_"):
+            # Chọn campus mới
+            campus_name = callback_data[13:]  # Bỏ "vitri_select_" prefix
+
+            success = await self.set_user_preferred_campus(user_id, campus_name)
+
+            if success:
+                message = self.format_vitri_menu(campus_name)
+                reply_markup = self.format_vitri_keyboard(campus_name)
+            else:
+                message = "❌ *Lỗi*\n\nKhông thể lưu vị trí. Vui lòng thử lại."
+                reply_markup = InlineKeyboardMarkup([])
+
+            try:
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            except BadRequest as e:
+                if "Message is not modified" in str(e):
+                    await query.answer(f"Đã chọn: {campus_name}")
+                else:
+                    raise
+
+    def register_commands(self, application: Application) -> None:
+        """Đăng ký command handlers với Application"""
+        application.add_handler(CommandHandler("vitri", self.vitri_command))
+
+    def register_callbacks(self, application: Application) -> None:
+        """Đăng ký callback handlers với Application"""
+        application.add_handler(CallbackQueryHandler(self.vitri_callback, pattern="^vitri_"))

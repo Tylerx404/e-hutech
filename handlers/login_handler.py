@@ -10,9 +10,16 @@ import logging
 import aiohttp
 from typing import Dict, Any, Optional
 
+from telegram import Update
+from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
+
 from config.config import Config
+from utils.utils import generate_uuid
 
 logger = logging.getLogger(__name__)
+
+# Các trạng thái cho conversation handler
+USERNAME, PASSWORD = range(2)
 
 class LoginHandler:
     def __init__(self, db_manager, cache_manager):
@@ -331,3 +338,112 @@ class LoginHandler:
         except Exception as e:
             logger.error(f"Error getting user info for user {telegram_user_id}: {e}")
             return None
+
+    # ==================== Command/Conversation Methods ====================
+
+    async def login_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Bắt đầu quá trình đăng nhập"""
+        user_id = update.effective_user.id
+
+        # Lưu message_id của lệnh /dangnhap để reply vào đó
+        context.user_data["login_command_message_id"] = update.message.message_id
+
+        # Gửi tin nhắn yêu cầu nhập tài khoản và lưu message_id để xóa sau này
+        sent_message = await update.message.reply_text("Vui lòng nhập tên tài khoản HUTECH của bạn:", reply_to_message_id=update.message.message_id)
+        context.user_data["username_prompt_message_id"] = sent_message.message_id
+        return USERNAME
+
+    async def username_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Nhận tên tài khoản từ người dùng"""
+        context.user_data["username"] = update.message.text
+
+        # Xóa tin nhắn chứa tài khoản
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Không thể xóa tin nhắn: {e}")
+
+        # Xóa tin nhắn yêu cầu nhập tài khoản
+        try:
+            username_prompt_message_id = context.user_data.get("username_prompt_message_id")
+            if username_prompt_message_id:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=username_prompt_message_id
+                )
+        except Exception as e:
+            logger.warning(f"Không thể xóa tin nhắn yêu cầu nhập tài khoản: {e}")
+
+        # Lấy message_id của lệnh /dangnhap để reply
+        login_command_message_id = context.user_data.get("login_command_message_id")
+
+        # Gửi tin nhắn yêu cầu nhập mật khẩu và lưu message_id để xóa sau này
+        sent_message = await update.message.reply_text("Vui lòng nhập mật khẩu của bạn:", reply_to_message_id=login_command_message_id)
+        context.user_data["password_prompt_message_id"] = sent_message.message_id
+        return PASSWORD
+
+    async def password_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Nhận mật khẩu từ người dùng và thực hiện đăng nhập"""
+        username = context.user_data.get("username")
+        password = update.message.text
+
+        # Xóa tin nhắn chứa mật khẩu
+        try:
+            await update.message.delete()
+        except Exception as e:
+            logger.warning(f"Không thể xóa tin nhắn: {e}")
+
+        # Xóa tin nhắn yêu cầu nhập mật khẩu
+        try:
+            password_prompt_message_id = context.user_data.get("password_prompt_message_id")
+            if password_prompt_message_id:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=password_prompt_message_id
+                )
+        except Exception as e:
+            logger.warning(f"Không thể xóa tin nhắn yêu cầu nhập mật khẩu: {e}")
+
+        user_id = update.effective_user.id
+        device_uuid = generate_uuid()
+
+        # Lấy message_id của lệnh /dangnhap để reply
+        login_command_message_id = context.user_data.get("login_command_message_id")
+
+        # Thực hiện đăng nhập
+        result = await self.handle_login(user_id, username, password, device_uuid)
+
+        if result["success"]:
+            ho_ten = result.get("ho_ten")
+            if ho_ten:
+                await update.message.reply_text(f"Đăng nhập thành công! ({ho_ten})", reply_to_message_id=login_command_message_id)
+            else:
+                await update.message.reply_text("Đăng nhập thành công!", reply_to_message_id=login_command_message_id)
+        else:
+            await update.message.reply_text(result["message"], reply_to_message_id=login_command_message_id, parse_mode="Markdown")
+
+        # Xóa dữ liệu tạm thời
+        context.user_data.clear()
+
+        return ConversationHandler.END
+
+    async def login_fallback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Fallback cho conversation đăng nhập - khi user gửi command khác hoặc /dangnhap lại"""
+        # Xóa dữ liệu tạm thời
+        context.user_data.clear()
+        await update.message.reply_text("Đã hủy đăng nhập.", reply_to_message_id=update.message.message_id)
+        return ConversationHandler.END
+
+    def get_conversation_handler(self) -> ConversationHandler:
+        """Trả về ConversationHandler cho đăng nhập"""
+        return ConversationHandler(
+            entry_points=[CommandHandler("dangnhap", self.login_command)],
+            states={
+                USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.username_received)],
+                PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.password_received)],
+            },
+            fallbacks=[
+                CommandHandler("dangnhap", self.login_fallback),
+                MessageHandler(filters.COMMAND, self.login_fallback),  # Bắt tất cả commands khác
+            ],
+        )

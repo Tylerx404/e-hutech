@@ -9,11 +9,15 @@ import json
 import logging
 import aiohttp
 import io
+import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
 
 from config.config import Config
 
@@ -728,5 +732,216 @@ class DiemHandler:
         ws.column_dimensions['H'].width = 10
         ws.column_dimensions['I'].width = 10
         ws.column_dimensions['J'].width = 10
-        
+
         return current_row + len(tich_luy_data) if diem_tich_luy else current_row
+
+    # ==================== Command Methods ====================
+
+    async def diem_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /diem"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xem người dùng đã đăng nhập chưa
+        if not await self.db_manager.is_user_logged_in(user_id):
+            await update.message.reply_text("Bạn chưa đăng nhập. Vui lòng /dangnhap để đăng nhập.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Lấy điểm
+        result = await self.handle_diem(user_id)
+
+        if result["success"]:
+            # Định dạng dữ liệu điểm thành menu
+            message = self.format_diem_menu_message(result["data"])
+
+            # Tạo keyboard cho các nút chọn học kỳ
+            hocky_list = self.get_hocky_list(result["data"])
+            keyboard = []
+
+            # Thêm các nút chọn học kỳ (mỗi nút một hàng)
+            for hocky in hocky_list:
+                keyboard.append([InlineKeyboardButton(hocky["name"], callback_data=f"diem_{hocky['key']}")])
+
+            # Thêm nút xuất Excel
+            keyboard.append([InlineKeyboardButton("📄 Xuất Excel toàn bộ", callback_data="diem_export_all")])
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+                reply_to_message_id=update.message.message_id
+            )
+        else:
+            await update.message.reply_text(result['message'], reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+
+    # ==================== Callback Methods ====================
+
+    async def diem_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ các nút chọn học kỳ"""
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        # Lấy callback_data
+        callback_data = query.data
+        if callback_data.startswith("diem_"):
+            hocky_key = callback_data[5:]  # Bỏ "diem_" prefix
+
+            # Hiển thị thông báo đang xử lý
+            await query.answer("Đang tải điểm...")
+
+            if hocky_key == "more":
+                # Xem thêm học kỳ cũ hơn
+                result = await self.handle_diem(user_id)
+
+                if result["success"]:
+                    # Lấy danh sách học kỳ cũ hơn
+                    older_hocky_list = self.get_older_hocky_list(result["data"])
+
+                    if older_hocky_list:
+                        message = self.format_older_hocky_menu_message(result["data"])
+
+                        # Tạo keyboard cho các nút chọn học kỳ cũ
+                        keyboard = []
+                        for hocky in older_hocky_list:
+                            keyboard.append([InlineKeyboardButton(hocky["name"], callback_data=f"diem_{hocky['key']}")])
+
+                        # Thêm nút quay lại
+                        keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="diem_back")])
+
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+
+                        await query.edit_message_text(
+                            text=message,
+                            reply_markup=reply_markup,
+                            parse_mode="Markdown"
+                        )
+                    else:
+                        await query.edit_message_text("Không có học kỳ cũ hơn để hiển thị.")
+                else:
+                    await query.edit_message_text(result['message'], parse_mode="Markdown")
+            elif hocky_key == "back":
+                # Quay lại menu chính
+                result = await self.handle_diem(user_id)
+
+                if result["success"]:
+                    # Định dạng dữ liệu điểm thành menu
+                    message = self.format_diem_menu_message(result["data"])
+
+                    # Tạo keyboard cho các nút chọn học kỳ
+                    hocky_list = self.get_hocky_list(result["data"])
+                    keyboard = []
+
+                    # Thêm các nút chọn học kỳ (mỗi nút một hàng)
+                    for hocky in hocky_list:
+                        keyboard.append([InlineKeyboardButton(hocky["name"], callback_data=f"diem_{hocky['key']}")])
+
+                    # Thêm nút xuất Excel
+                    keyboard.append([InlineKeyboardButton("📄 Xuất Excel toàn bộ", callback_data="diem_export_all")])
+
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=reply_markup,
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await query.edit_message_text(f"{result['message']}", parse_mode="Markdown")
+
+            elif hocky_key.startswith("export_"):
+                # Xử lý xuất file Excel
+                export_type = hocky_key.split("_", 1)[1]
+
+                await query.answer("Đang tạo file Excel...")
+
+                # Lấy dữ liệu điểm
+                result = await self.handle_diem(user_id)
+
+                if result["success"]:
+                    try:
+                        if export_type == "all":
+                            # Xuất toàn bộ
+                            excel_file = await asyncio.to_thread(
+                                self.generate_diem_xlsx,
+                                result["data"]
+                            )
+                            filename = "diem_toan_bo.xlsx"
+                            caption = "📄 Bảng điểm toàn bộ"
+                        else:
+                            # Xuất theo học kỳ
+                            excel_file = await asyncio.to_thread(
+                                self.generate_diem_xlsx,
+                                result["data"],
+                                export_type # hocky_key
+                            )
+                            hocky_name = result["data"]["hocky_data"][export_type].get("hocky_name", export_type)
+                            filename = f"diem_{hocky_name}.xlsx"
+                            caption = f"📄 Bảng điểm {hocky_name}"
+
+                        await query.message.reply_document(
+                            document=excel_file,
+                            filename=filename,
+                            caption=caption
+                        )
+
+                        # Xóa tin nhắn menu cũ
+                        await query.message.delete()
+
+                        # Gửi lại menu điểm
+                        result = await self.handle_diem(user_id)
+                        if result["success"]:
+                            message = self.format_diem_menu_message(result["data"])
+                            hocky_list = self.get_hocky_list(result["data"])
+                            keyboard = []
+                            row = []
+                            for i, hocky in enumerate(hocky_list):
+                                row.append(InlineKeyboardButton(hocky["name"], callback_data=f"diem_{hocky['key']}"))
+                                if len(row) == 3 or i == len(hocky_list) - 1:
+                                    keyboard.append(row)
+                                    row = []
+                            keyboard.append([InlineKeyboardButton("📄 Xuất Excel toàn bộ", callback_data="diem_export_all")])
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            await query.message.reply_text(
+                                message,
+                                reply_markup=reply_markup,
+                                parse_mode="Markdown"
+                            )
+
+                    except Exception as e:
+                        logger.error(f"Lỗi tạo file Excel: {e}", exc_info=True)
+                        await query.edit_message_text(f"Lỗi tạo file Excel: {str(e)}")
+                else:
+                    await query.edit_message_text(f"Không thể lấy dữ liệu điểm để xuất file: {result['message']}", parse_mode="Markdown")
+            else:
+                # Xem điểm chi tiết của học kỳ được chọn
+                result = await self.handle_diem(user_id, hocky_key)
+
+                if result["success"]:
+                    # Định dạng dữ liệu điểm chi tiết
+                    message = self.format_diem_detail_message(result["data"])
+
+                    # Tạo keyboard cho các nút điều hướng
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("📄 Xuất Excel", callback_data=f"diem_export_{hocky_key}"),
+                            InlineKeyboardButton("⬅️ Quay lại", callback_data="diem_back")
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=reply_markup,
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await query.edit_message_text(f"Không thể lấy điểm chi tiết: {result['message']}", parse_mode="Markdown")
+
+    def register_commands(self, application: Application) -> None:
+        """Đăng ký command handlers với Application"""
+        application.add_handler(CommandHandler("diem", self.diem_command))
+
+    def register_callbacks(self, application: Application) -> None:
+        """Đăng ký callback handlers với Application"""
+        application.add_handler(CallbackQueryHandler(self.diem_callback, pattern="^diem_"))

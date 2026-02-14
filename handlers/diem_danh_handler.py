@@ -10,6 +10,9 @@ import logging
 import aiohttp
 from typing import Dict, Any, Optional, List
 
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+
 from config.config import Config
 
 logger = logging.getLogger(__name__)
@@ -277,22 +280,16 @@ class DiemDanhHandler:
     def format_campus_menu_message(self) -> str:
         """
         Định dạng danh sách campus thành tin nhắn menu
-        
+
         Returns:
             Chuỗi tin nhắn đã định dạng
         """
         try:
-            # Tạo tiêu đề
             message = "📍 *Chọn Vị Trí Điểm Danh*\n\n"
-            
-            # Hiển thị danh sách campus
-            for i, campus_name in enumerate(CAMPUS_LOCATIONS.keys(), 1):
-                message += f"{i}. *{campus_name}*\n"
-            
-            message += "\nVui lòng chọn một campus để tiếp tục điểm danh."
-            
+            message += "💡 *Tip:* Bạn có thể dùng /vitri để lưu vị trí mặc định và bỏ qua bước này."
+
             return message
-        
+
         except Exception as e:
             logger.error(f"Error formatting campus menu message: {e}")
             return f"Lỗi định dạng menu campus: {str(e)}"
@@ -324,22 +321,24 @@ class DiemDanhHandler:
             logger.error(f"Error creating campus keyboard: {e}")
             return []
     
-    def format_diem_danh_numeric_message(self, campus_name: str) -> str:
+    def format_diem_danh_numeric_message(self, campus_name: str, current_input: str = "") -> str:
         """
         Định dạng tin nhắn hiển thị menu với bàn phím và hiệu ứng nhập 4 số
-        
+
         Args:
             campus_name: Tên campus đã chọn
-            
+            current_input: Chuỗi số đã nhập
+
         Returns:
             Chuỗi tin nhắn đã định dạng
         """
         try:
+            display = self.format_diem_danh_numeric_display(current_input)
             message = f"📍 *Điểm Danh Tại {campus_name}*\n\n"
-            message += "Nhập mã điểm danh:"
-            
+            message += f"Nhập mã điểm danh: {display}"
+
             return message
-        
+
         except Exception as e:
             logger.error(f"Error formatting điểm danh numeric message: {e}")
             return f"Lỗi định dạng tin nhắn: {str(e)}"
@@ -405,13 +404,13 @@ class DiemDanhHandler:
                 if i < len(current_input):
                     display += f"{current_input[i]} "
                 else:
-                    display += "⬜ "
+                    display += "▫️"
             
             return display
         
         except Exception as e:
             logger.error(f"Error formatting numeric display: {e}")
-            return "⬜ ⬜ ⬜ ⬜"
+            return "▫️▫️▫️▫️"
     
     def get_campus_location(self, campus_name: str) -> Optional[Dict[str, float]]:
         """
@@ -428,3 +427,212 @@ class DiemDanhHandler:
         except Exception as e:
             logger.error(f"Error getting campus location for {campus_name}: {e}")
             return None
+
+    # ==================== Command Methods ====================
+
+    async def diemdanh_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /diemdanh"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xem người dùng đã đăng nhập chưa
+        if not await self.db_manager.is_user_logged_in(user_id):
+            await update.message.reply_text("Bạn chưa đăng nhập. Vui lòng /dangnhap để đăng nhập.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Kiểm tra xem người dùng đã thiết lập vị trí mặc định chưa
+        preferred_campus = await self.db_manager.get_user_preferred_campus(user_id)
+
+        if preferred_campus:
+            # Đã có vị trí mặc định -> Bỏ qua chọn campus, đi trực tiếp đến nhập mã
+            campus_name = preferred_campus
+            context.user_data["diemdanh_campus"] = campus_name
+            context.user_data["diemdanh_input"] = ""
+
+            message = self.format_diem_danh_numeric_message(campus_name, "")
+            keyboard_data = self.format_diem_danh_numeric_keyboard()
+            keyboard = []
+            for row in keyboard_data:
+                keyboard.append([
+                    InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                    for btn in row
+                ])
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+                reply_to_message_id=update.message.message_id
+            )
+        else:
+            # Chưa có vị trí mặc định -> Hiển thị menu chọn campus
+            result = await self.handle_diem_danh_menu(user_id)
+
+            if result["success"]:
+                # Định dạng danh sách campus
+                message = self.format_campus_menu_message()
+
+                # Tạo keyboard cho các nút chọn campus
+                keyboard_data = self.format_campus_keyboard()
+                keyboard = []
+                for row in keyboard_data:
+                    keyboard.append([
+                        InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                        for btn in row
+                    ])
+
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await update.message.reply_text(
+                    message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                    reply_to_message_id=update.message.message_id
+                )
+            else:
+                await update.message.reply_text(result['message'], reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+
+    # ==================== Callback Methods ====================
+
+    async def diemdanh_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ các nút chọn campus"""
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        # Lấy callback_data
+        callback_data = query.data
+
+        # Xử lý chọn campus
+        if callback_data.startswith("diemdanh_campus_"):
+            campus_name = callback_data[16:]  # Bỏ "diemdanh_campus_" prefix
+            context.user_data["diemdanh_campus"] = campus_name
+            context.user_data["diemdanh_input"] = ""
+
+            # Hiển thị bàn phím số
+            message = self.format_diem_danh_numeric_message(campus_name, "")
+
+            keyboard_data = self.format_diem_danh_numeric_keyboard()
+            keyboard = []
+            for row in keyboard_data:
+                keyboard.append([
+                    InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                    for btn in row
+                ])
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+    async def diemdanh_numeric_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ bàn phím số"""
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        # Lấy callback_data
+        callback_data = query.data
+
+        # Lấy trạng thái nhập hiện tại
+        current_input = context.user_data.get("diemdanh_input", "")
+        campus_name = context.user_data.get("diemdanh_campus", "")
+
+        # Xử lý các nút
+        if callback_data == "num_exit":
+            # Thoát
+            context.user_data.pop("diemdanh_input", None)
+            context.user_data.pop("diemdanh_campus", None)
+
+            # Hiển thị lại menu chọn campus
+            result = await self.handle_diem_danh_menu(user_id)
+            if result["success"]:
+                message = self.format_campus_menu_message()
+                keyboard_data = self.format_campus_keyboard()
+                keyboard = []
+                for row in keyboard_data:
+                    keyboard.append([
+                        InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                        for btn in row
+                    ])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            return
+
+        elif callback_data == "num_delete":
+            # Xoá ký tự cuối
+            current_input = current_input[:-1]
+            context.user_data["diemdanh_input"] = current_input
+
+        elif callback_data.startswith("num_"):
+            # Nhập số
+            num = callback_data[4:]  # Bỏ "num_" prefix
+            if len(current_input) < 4:
+                current_input += num
+                context.user_data["diemdanh_input"] = current_input
+
+        # Cập nhật hiển thị
+        message = self.format_diem_danh_numeric_message(campus_name, current_input)
+
+        keyboard_data = self.format_diem_danh_numeric_keyboard()
+        keyboard = []
+        for row in keyboard_data:
+            keyboard.append([
+                InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                for btn in row
+            ])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Kiểm tra nếu đã nhập đủ 4 số
+        if len(current_input) == 4:
+            # Thực hiện điểm danh
+            await query.edit_message_text(
+                text=f"{message}\n\nĐang điểm danh...",
+                parse_mode="Markdown"
+            )
+
+            result = await self.handle_submit_diem_danh(user_id, current_input, campus_name)
+
+            if result["success"]:
+                await query.edit_message_text(
+                    text=f"✅ *Điểm danh thành công!*\n\n{result['message']}",
+                    parse_mode="Markdown"
+                )
+            else:
+                # Tạo keyboard với nút quay lại
+                keyboard = [[InlineKeyboardButton("⬅️ Quay lại", callback_data="num_exit")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    text=f"{result['message']}",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+
+            # Xóa dữ liệu tạm
+            context.user_data.pop("diemdanh_input", None)
+            context.user_data.pop("diemdanh_campus", None)
+        else:
+            await query.edit_message_text(
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+    def register_commands(self, application: Application) -> None:
+        """Đăng ký command handlers với Application"""
+        application.add_handler(CommandHandler("diemdanh", self.diemdanh_command))
+
+    def register_callbacks(self, application: Application) -> None:
+        """Đăng ký callback handlers với Application"""
+        application.add_handler(CallbackQueryHandler(self.diemdanh_callback, pattern="^diemdanh_campus_"))
+        # Sử dụng negative lookahead để tránh match num_tatca_
+        application.add_handler(CallbackQueryHandler(self.diemdanh_numeric_callback, pattern="^num_(?!tatca_)"))
