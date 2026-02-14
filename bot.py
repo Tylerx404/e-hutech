@@ -1761,6 +1761,30 @@ Các lệnh có sẵn:
             # Không có state, bỏ qua
             return
 
+        # Kiểm tra nếu là diemdanh hoặc diemdanhtatca -> gửi kết quả trực tiếp, không có "Đang xử lý..."
+        if state in ["diemdanh", "diemdanhtatca"]:
+            result_message = None
+
+            if state == "diemdanh":
+                result_message = await self.handle_diemdanh_reply_input(update, context, text)
+            else:
+                result_message = await self.handle_diemdanhtatca_reply_input(update, context, text)
+
+            # Gửi kết quả trực tiếp
+            if result_message:
+                try:
+                    await update.message.reply_text(
+                        result_message,
+                        parse_mode="Markdown"
+                    )
+                except Exception:
+                    await update.message.reply_text(result_message)
+
+            # Xóa state sau khi xử lý
+            context.user_data.pop("reply_keyboard_state", None)
+            return
+
+        # Với vitri và danhsach: giữ nguyên logic gửi "Đang xử lý..." và edit
         # Gửi tin nhắn "Đang xử lý..." và reply vào tin nhắn của user
         processing_message = await update.message.reply_text(
             "⏳ Đang xử lý...",
@@ -1786,12 +1810,6 @@ Các lệnh có sẵn:
         elif state == "danhsach":
             # Xử lý chọn tài khoản từ /danhsach
             result_message = await self.handle_danhsach_reply_input(update, context, text)
-        elif state == "diemdanh":
-            # Xử lý chọn campus từ /diemdanh
-            result_message = await self.handle_diemdanh_reply_input(update, context, text)
-        elif state == "diemdanhtatca":
-            # Xử lý chọn campus từ /diemdanhtatca
-            result_message = await self.handle_diemdanhtatca_reply_input(update, context, text)
 
         # Edit tin nhắn "Đang xử lý..." thành kết quả
         if result_message:
@@ -1904,7 +1922,7 @@ Các lệnh có sẵn:
         # Lưu trạng thái nhập số
         context.user_data["numeric_input"] = ""
 
-        return f"✅ Đã chọn: {text}\n\nNhập mã điểm danh (4 chữ số):"
+        return None
 
     async def handle_diemdanhtatca_reply_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> str:
         """Xử lý khi user chọn campus từ /diemdanhtatca"""
@@ -1946,7 +1964,7 @@ Các lệnh có sẵn:
         # Lưu trạng thái nhập số
         context.user_data["numeric_input_tatca"] = ""
 
-        return f"✅ Đã chọn: {text}\n\nNhập mã điểm danh (4 chữ số):"
+        return None
     
     def setup_handlers(self, application: Application) -> None:
         """Thiết lập các handler cho bot"""
