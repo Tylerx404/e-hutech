@@ -8,6 +8,8 @@ Handler xử lý vị trí điểm danh (campus)
 import logging
 from typing import Dict, Any, Optional, List
 
+from telegram import ReplyKeyboardMarkup, KeyboardButton
+
 from config.config import Config
 
 logger = logging.getLogger(__name__)
@@ -117,3 +119,58 @@ class ViTriHandler:
     def get_all_campuses(self) -> List[str]:
         """Lấy danh sách tất cả campus."""
         return list(CAMPUS_LOCATIONS.keys())
+
+    def format_vitri_reply_keyboard(self, preferred_campus: Optional[str] = None) -> ReplyKeyboardMarkup:
+        """
+        Tạo ReplyKeyboard cho menu vị trí
+
+        Args:
+            preferred_campus: Campus đã lưu (nếu có)
+
+        Returns:
+            ReplyKeyboardMarkup object
+        """
+        try:
+            keyboard = []
+            campuses = list(CAMPUS_LOCATIONS.keys())
+
+            # Chia 2 cột 2 hàng cho 4 campus
+            for i in range(0, len(campuses), 2):
+                row = [KeyboardButton(campuses[i])]
+                if i + 1 < len(campuses):
+                    row.append(KeyboardButton(campuses[i + 1]))
+                keyboard.append(row)
+
+            # Thêm nút xóa vị trí nếu có vị trí đã lưu (1 cột 1 hàng)
+            if preferred_campus:
+                keyboard.append([KeyboardButton("🗑️ Xóa vị trí đã lưu")])
+
+            return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+        except Exception as e:
+            logger.error(f"Error creating vị trí reply keyboard: {e}")
+            return ReplyKeyboardMarkup([], resize_keyboard=True)
+
+    def format_campus_reply_keyboard(self) -> ReplyKeyboardMarkup:
+        """
+        Tạo ReplyKeyboard cho chọn campus (dùng chung cho diemdanh, diemdanhtatca)
+
+        Returns:
+            ReplyKeyboardMarkup object
+        """
+        try:
+            keyboard = []
+            campuses = list(CAMPUS_LOCATIONS.keys())
+
+            # Chia 2 cột 2 hàng cho 4 campus
+            for i in range(0, len(campuses), 2):
+                row = [KeyboardButton(campuses[i])]
+                if i + 1 < len(campuses):
+                    row.append(KeyboardButton(campuses[i + 1]))
+                keyboard.append(row)
+
+            return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+        except Exception as e:
+            logger.error(f"Error creating campus reply keyboard: {e}")
+            return ReplyKeyboardMarkup([], resize_keyboard=True)

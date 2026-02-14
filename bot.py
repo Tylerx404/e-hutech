@@ -13,7 +13,7 @@ import asyncio
 from pathlib import Path
 
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 from telegram.error import BadRequest
 
@@ -208,7 +208,7 @@ Các lệnh có sẵn:
 
     async def danhsach_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /danhsach - Hiển thị danh sách tài khoản đã đăng nhập"""
-        await self.danh_sach_handler.danhsach_command(update, context)
+        await self.danh_sach_handler.danhsach_command(update, context, set_state=True)
 
     async def danhsach_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ menu danh sách tài khoản"""
@@ -402,28 +402,24 @@ Các lệnh có sẵn:
             context.user_data["numeric_input"] = ""
             context.user_data["numeric_message_id"] = sent_message.message_id
         else:
-            # Không có vị trí đã lưu → hiển thị menu chọn campus
-            result = await self.diem_danh_handler.handle_diem_danh_menu(user_id)
+            # Không có vị trí đã lưu → hiển thị menu chọn campus bằng Reply Keyboard
+            message = self.diem_danh_handler.format_campus_menu_message()
 
-            if result["success"]:
-                # Định dạng dữ liệu campus thành menu
-                message = self.diem_danh_handler.format_campus_menu_message()
+            # Tạo reply keyboard cho các nút chọn campus
+            reply_markup = self.vi_tri_handler.format_campus_reply_keyboard()
 
-                # Tạo keyboard cho các nút chọn campus
-                keyboard = self.diem_danh_handler.format_campus_keyboard()
-                reply_markup = InlineKeyboardMarkup(keyboard)
+            # Thêm thông báo về /vitri
+            message += "\n\n💡 *Tip:* Bạn có thể dùng /vitri để lưu vị trí mặc định và bỏ qua bước này."
 
-                # Thêm thông báo về /vitri
-                message += "\n\n💡 *Tip:* Bạn có thể dùng /vitri để lưu vị trí mặc định và bỏ qua bước này."
+            # Set state để biết user đang ở menu diemdanh
+            context.user_data["reply_keyboard_state"] = "diemdanh"
 
-                await update.message.reply_text(
-                    message,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown",
-                    reply_to_message_id=update.message.message_id
-                )
-            else:
-                await update.message.reply_text(f"Không thể hiển thị menu campus: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+            await update.message.reply_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+                reply_to_message_id=update.message.message_id
+            )
 
     async def vitri_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /vitri - Quản lý vị trí điểm danh"""
@@ -440,9 +436,11 @@ Các lệnh có sẵn:
         # Định dạng tin nhắn menu
         message = self.vi_tri_handler.format_vitri_menu(preferred_campus)
 
-        # Tạo keyboard
-        keyboard = self.vi_tri_handler.format_vitri_keyboard(preferred_campus)
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Tạo reply keyboard
+        reply_markup = self.vi_tri_handler.format_vitri_reply_keyboard(preferred_campus)
+
+        # Set state để biết user đang ở menu vitri
+        context.user_data["reply_keyboard_state"] = "vitri"
 
         await update.message.reply_text(
             message,
@@ -792,25 +790,25 @@ Các lệnh có sẵn:
             context.user_data["numeric_input_tatca"] = ""
             context.user_data["numeric_message_id_tatca"] = sent_message.message_id
         else:
-            # Không có vị trí đã lưu → hiển thị menu chọn campus
-            result = await self.diem_danh_tat_ca_handler.handle_diem_danh_tat_ca_menu(user_id)
+            # Không có vị trí đã lưu → hiển thị menu chọn campus bằng Reply Keyboard
+            # Lấy số lượng tài khoản
+            accounts = await self.db_manager.get_user_accounts(user_id)
+            accounts_count = len(accounts) if accounts else 0
 
-            if result["success"]:
-                # Định dạng dữ liệu campus thành menu
-                message = self.diem_danh_tat_ca_handler.format_campus_menu_message() if hasattr(self.diem_danh_tat_ca_handler, 'format_campus_menu_message') else f"📍 *Chọn Vị Trí Điểm Danh Tất Cả*\n\nSẽ điểm danh cho {result['data']['accounts_count']} tài khoản.\n\nVui lòng chọn campus:"
+            message = f"📍 *Chọn Vị Trí Điểm Danh Tất Cả*\n\nSẽ điểm danh cho {accounts_count} tài khoản.\n\nVui lòng chọn campus:"
 
-                # Tạo keyboard cho các nút chọn campus
-                keyboard = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_keyboard()
-                reply_markup = InlineKeyboardMarkup(keyboard)
+            # Tạo reply keyboard cho các nút chọn campus
+            reply_markup = self.vi_tri_handler.format_campus_reply_keyboard()
 
-                await update.message.reply_text(
-                    message,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown",
-                    reply_to_message_id=update.message.message_id
-                )
-            else:
-                await update.message.reply_text(f"Không thể hiển thị menu campus: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+            # Set state để biết user đang ở menu diemdanhtatca
+            context.user_data["reply_keyboard_state"] = "diemdanhtatca"
+
+            await update.message.reply_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+                reply_to_message_id=update.message.message_id
+            )
 
     async def diemdanhtatca_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút chọn campus cho điểm danh tất cả"""
@@ -1750,6 +1748,205 @@ Các lệnh có sẵn:
         context.user_data.pop("selected_subjects", None)
         context.user_data.pop("tkb_subjects_dict", None)
         context.user_data.pop("tkb_week_offset", None)
+
+    async def handle_reply_keyboard_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý input từ Reply Keyboard"""
+        text = update.message.text
+        user_id = update.effective_user.id
+
+        # Lấy state hiện tại
+        state = context.user_data.get("reply_keyboard_state")
+
+        if not state:
+            # Không có state, bỏ qua
+            return
+
+        # Gửi tin nhắn "Đang xử lý..." và reply vào tin nhắn của user
+        processing_message = await update.message.reply_text(
+            "⏳ Đang xử lý...",
+            reply_to_message_id=update.message.message_id
+        )
+        processing_message_id = processing_message.message_id
+
+        # Xóa reply keyboard
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=update.effective_chat.id,
+                message_id=processing_message_id,
+                reply_markup=None
+            )
+        except Exception:
+            pass
+
+        result_message = None
+
+        if state == "vitri":
+            # Xử lý chọn campus từ /vitri
+            result_message = await self.handle_vitri_reply_input(update, context, text)
+        elif state == "danhsach":
+            # Xử lý chọn tài khoản từ /danhsach
+            result_message = await self.handle_danhsach_reply_input(update, context, text)
+        elif state == "diemdanh":
+            # Xử lý chọn campus từ /diemdanh
+            result_message = await self.handle_diemdanh_reply_input(update, context, text)
+        elif state == "diemdanhtatca":
+            # Xử lý chọn campus từ /diemdanhtatca
+            result_message = await self.handle_diemdanhtatca_reply_input(update, context, text)
+
+        # Edit tin nhắn "Đang xử lý..." thành kết quả
+        if result_message:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=processing_message_id,
+                    text=result_message,
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                # Nếu lỗi parse Markdown, gửi lại dưới dạng text thường
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=update.effective_chat.id,
+                        message_id=processing_message_id,
+                        text=result_message
+                    )
+                except Exception:
+                    pass
+
+        # Xóa state sau khi xử lý
+        context.user_data.pop("reply_keyboard_state", None)
+
+    async def handle_vitri_reply_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> str:
+        """Xử lý khi user chọn campus từ /vitri"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xóa vị trí
+        if text == "🗑️ Xóa vị trí đã lưu":
+            success = await self.vi_tri_handler.delete_user_preferred_campus(user_id)
+            if success:
+                return "✅ Đã xóa vị trí đã lưu."
+            else:
+                return "❌ Lỗi xóa vị trí!"
+
+        # Kiểm tra campus hợp lệ
+        valid_campuses = self.vi_tri_handler.get_all_campuses()
+        if text not in valid_campuses:
+            return "❌ Campus không hợp lệ. Vui lòng chọn lại."
+
+        # Lưu campus
+        success = await self.vi_tri_handler.set_user_preferred_campus(user_id, text)
+        if success:
+            return f"✅ Đã lưu vị trí: {text}"
+        else:
+            return "❌ Lỗi lưu vị trí!"
+
+    async def handle_danhsach_reply_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> str:
+        """Xử lý khi user chọn tài khoản từ /danhsach"""
+        user_id = update.effective_user.id
+        username = text.lstrip("✅ ")  # Bỏ marker nếu có
+
+        # Kiểm tra tài khoản tồn tại
+        accounts = await self.db_manager.get_user_accounts(user_id)
+        valid_usernames = [acc.get('ho_ten') or acc.get('username', '') for acc in accounts]
+        valid_usernames += [acc.get('username', '') for acc in accounts]
+
+        if username not in valid_usernames:
+            return "❌ Tài khoản không hợp lệ. Vui lòng chọn lại."
+
+        # Tìm username thực
+        target_username = None
+        for acc in accounts:
+            if (acc.get('ho_ten') or acc.get('username')) == username:
+                target_username = acc.get('username')
+                break
+
+        if not target_username:
+            target_username = username
+
+        # Chuyển đổi tài khoản
+        await self.db_manager.set_active_account(user_id, target_username)
+        await self.cache_manager.clear_user_cache(user_id)
+        return f"✅ Đã chuyển sang tài khoản: {target_username}"
+
+    async def handle_diemdanh_reply_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> str:
+        """Xử lý khi user chọn campus từ /diemdanh"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra campus hợp lệ
+        valid_campuses = self.vi_tri_handler.get_all_campuses()
+        if text not in valid_campuses:
+            return "❌ Campus không hợp lệ. Vui lòng chọn lại."
+
+        # Lưu campus đã chọn vào DB
+        await self.vi_tri_handler.set_user_preferred_campus(user_id, text)
+
+        # Lưu campus đã chọn vào context
+        context.user_data["selected_campus"] = text
+
+        # Hiển thị tin nhắn yêu cầu nhập mã QR với bàn phím số
+        message = self.diem_danh_handler.format_diem_danh_numeric_message(text)
+
+        # Tạo bàn phím số
+        keyboard = self.diem_danh_handler.format_diem_danh_numeric_keyboard()
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Hiển thị trạng thái nhập số hiện tại
+        display = self.diem_danh_handler.format_diem_danh_numeric_display("")
+
+        # Gửi tin nhắn mới với bàn phím số (song song với tin nhắn kết quả)
+        await update.message.reply_text(
+            text=f"{message}\n\n{display}",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+            reply_to_message_id=update.message.message_id
+        )
+
+        # Lưu trạng thái nhập số
+        context.user_data["numeric_input"] = ""
+
+        return f"✅ Đã chọn: {text}\n\nNhập mã điểm danh (4 chữ số):"
+
+    async def handle_diemdanhtatca_reply_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> str:
+        """Xử lý khi user chọn campus từ /diemdanhtatca"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra campus hợp lệ
+        valid_campuses = self.vi_tri_handler.get_all_campuses()
+        if text not in valid_campuses:
+            return "❌ Campus không hợp lệ. Vui lòng chọn lại."
+
+        # Lưu campus đã chọn vào DB
+        await self.vi_tri_handler.set_user_preferred_campus(user_id, text)
+
+        # Lưu campus đã chọn vào context
+        context.user_data["selected_campus_tatca"] = text
+
+        # Lấy số lượng tài khoản
+        accounts = await self.db_manager.get_user_accounts(user_id)
+        accounts_count = len(accounts) if accounts else 0
+
+        # Hiển thị tin nhắn yêu cầu nhập mã QR với bàn phím số
+        message = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_message(text, accounts_count)
+
+        # Tạo bàn phím số
+        keyboard = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_keyboard()
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Hiển thị trạng thái nhập số hiện tại
+        display = self.diem_danh_tat_ca_handler.format_diem_danh_tat_ca_numeric_display("")
+
+        # Gửi tin nhắn mới với bàn phím số (song song với tin nhắn kết quả)
+        await update.message.reply_text(
+            text=f"{message}\n\n{display}",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+            reply_to_message_id=update.message.message_id
+        )
+
+        # Lưu trạng thái nhập số
+        context.user_data["numeric_input_tatca"] = ""
+
+        return f"✅ Đã chọn: {text}\n\nNhập mã điểm danh (4 chữ số):"
     
     def setup_handlers(self, application: Application) -> None:
         """Thiết lập các handler cho bot"""
@@ -1789,6 +1986,9 @@ Các lệnh có sẵn:
         application.add_handler(CallbackQueryHandler(self.vitri_callback, pattern="^vitri_"))
 
         application.add_handler(conv_handler)
+
+        # Handler cho Reply Keyboard input (xử lý text từ Reply Keyboard)
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_reply_keyboard_input), group=-1)
 
         # Handler cho nhập mã QR (chỉ hoạt động khi không có conversation nào đang diễn ra)
         # Đặt ở group=-1 để đảm bảo nó chỉ được xử lý sau khi các handler khác không khớp

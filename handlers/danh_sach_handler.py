@@ -7,7 +7,7 @@ Xử lý hiển thị danh sách tài khoản đã đăng nhập
 """
 
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class DanhSachHandler:
         self.cache_manager = cache_manager
         self.logout_handler = logout_handler
 
-    async def danhsach_command(self, update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def danhsach_command(self, update, context: ContextTypes.DEFAULT_TYPE, set_state: bool = True) -> None:
         """Xử lý lệnh /danhsach - Hiển thị danh sách tài khoản đã đăng nhập"""
         user_id = update.effective_user.id
 
@@ -39,19 +39,28 @@ class DanhSachHandler:
             await update.message.reply_text("Bạn chưa đăng nhập tài khoản nào.", reply_to_message_id=update.message.message_id)
             return
 
-        # Tạo menu hiển thị danh sách tài khoản
+        # Tạo reply keyboard hiển thị danh sách tài khoản (2 cột)
         keyboard = []
-        for acc in accounts:
+        for i in range(0, len(accounts), 2):
+            row = []
+            acc = accounts[i]
             ho_ten = acc.get('ho_ten') or acc.get('username', 'Unknown')
             marker = "✅ " if acc.get('is_active') else ""
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{marker}{ho_ten}",
-                    callback_data=f"switch_account_{acc['username']}"
-                )
-            ])
+            row.append(KeyboardButton(f"{marker}{ho_ten}"))
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
+            if i + 1 < len(accounts):
+                acc2 = accounts[i + 1]
+                ho_ten2 = acc2.get('ho_ten') or acc2.get('username', 'Unknown')
+                marker2 = "✅ " if acc2.get('is_active') else ""
+                row.append(KeyboardButton(f"{marker2}{ho_ten2}"))
+
+            keyboard.append(row)
+
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+        # Set state để biết user đang ở menu danhsach
+        if set_state:
+            context.user_data["reply_keyboard_state"] = "danhsach"
 
         await update.message.reply_text(
             "📋 *Danh sách tài khoản*\n\nChọn tài khoản để chuyển đổi:",
