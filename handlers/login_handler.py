@@ -444,6 +444,7 @@ class LoginHandler:
             },
             fallbacks=[
                 CommandHandler("dangnhap", self.login_fallback),
-                MessageHandler(filters.COMMAND, self.login_fallback),  # Bắt tất cả commands khác
             ],
+            # Cho phép các command khác tự động hủy conversation và chạy
+            allow_reentry=False,
         )

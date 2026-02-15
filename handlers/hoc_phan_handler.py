@@ -556,21 +556,25 @@ class HocPhanHandler:
     def _process_nam_hoc_hoc_ky_data(self, nam_hoc_hoc_ky_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Xử lý dữ liệu năm học - học kỳ
-        
+
         Args:
             nam_hoc_hoc_ky_data: Dữ liệu năm học - học kỳ thô từ API
-            
+
         Returns:
             Dữ liệu đã được xử lý
         """
         try:
+            # Lọc chỉ giữ lại mã lẻ
+            filtered_data = [item for item in nam_hoc_hoc_ky_data
+                           if int(item.get("ma_hoc_ky", "0")[-1]) % 2 != 0]
+
             # Sắp xếp theo mã năm học - học kỳ (mới nhất lên đầu)
-            sorted_data = sorted(nam_hoc_hoc_ky_data, key=lambda x: x.get("ma_hoc_ky", ""), reverse=True)
-            
+            sorted_data = sorted(filtered_data, key=lambda x: x.get("ma_hoc_ky", ""), reverse=True)
+
             return {
                 "nam_hoc_hoc_ky_list": sorted_data
             }
-        
+
         except Exception as e:
             logger.error(f"Error processing năm học - học kỳ data: {e}")
             return {
@@ -580,10 +584,10 @@ class HocPhanHandler:
     def _process_search_hoc_phan_data(self, search_hoc_phan_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Xử lý dữ liệu tìm kiếm học phần
-        
+
         Args:
             search_hoc_phan_data: Dữ liệu tìm kiếm học phần thô từ API
-            
+
         Returns:
             Dữ liệu đã được xử lý
         """
@@ -594,11 +598,11 @@ class HocPhanHandler:
                 x.get("json_thong_tin", {}).get("hoc_ky", ""),
                 x.get("json_thong_tin", {}).get("ten_mon_hoc", "")
             ), reverse=True)
-            
+
             return {
                 "hoc_phan_list": sorted_data
             }
-        
+
         except Exception as e:
             logger.error(f"Error processing search học phần data: {e}")
             return {
