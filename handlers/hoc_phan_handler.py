@@ -9,11 +9,15 @@ import json
 import logging
 import aiohttp
 import io
+import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
 
 from config.config import Config
 
@@ -552,21 +556,25 @@ class HocPhanHandler:
     def _process_nam_hoc_hoc_ky_data(self, nam_hoc_hoc_ky_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Xử lý dữ liệu năm học - học kỳ
-        
+
         Args:
             nam_hoc_hoc_ky_data: Dữ liệu năm học - học kỳ thô từ API
-            
+
         Returns:
             Dữ liệu đã được xử lý
         """
         try:
+            # Lọc chỉ giữ lại mã lẻ
+            filtered_data = [item for item in nam_hoc_hoc_ky_data
+                           if int(item.get("ma_hoc_ky", "0")[-1]) % 2 != 0]
+
             # Sắp xếp theo mã năm học - học kỳ (mới nhất lên đầu)
-            sorted_data = sorted(nam_hoc_hoc_ky_data, key=lambda x: x.get("ma_hoc_ky", ""), reverse=True)
-            
+            sorted_data = sorted(filtered_data, key=lambda x: x.get("ma_hoc_ky", ""), reverse=True)
+
             return {
                 "nam_hoc_hoc_ky_list": sorted_data
             }
-        
+
         except Exception as e:
             logger.error(f"Error processing năm học - học kỳ data: {e}")
             return {
@@ -576,10 +584,10 @@ class HocPhanHandler:
     def _process_search_hoc_phan_data(self, search_hoc_phan_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Xử lý dữ liệu tìm kiếm học phần
-        
+
         Args:
             search_hoc_phan_data: Dữ liệu tìm kiếm học phần thô từ API
-            
+
         Returns:
             Dữ liệu đã được xử lý
         """
@@ -590,11 +598,11 @@ class HocPhanHandler:
                 x.get("json_thong_tin", {}).get("hoc_ky", ""),
                 x.get("json_thong_tin", {}).get("ten_mon_hoc", "")
             ), reverse=True)
-            
+
             return {
                 "hoc_phan_list": sorted_data
             }
-        
+
         except Exception as e:
             logger.error(f"Error processing search học phần data: {e}")
             return {
@@ -882,6 +890,19 @@ class HocPhanHandler:
                 message += f"\n*{ngay_hoc}* ({gio_bat_dau} - {gio_ket_thuc})\n"
                 message += f"   - *Trạng thái:* {status_icon} {status_text}\n"
                 message += f"   - *Phòng:* `{ma_phong}`\n"
+
+                # Lấy thông tin chi tiết từ QR code điểm danh
+                chi_tiet_dd = lich_trinh.get("diem_danh") or {}
+                chi_tiet_list = chi_tiet_dd.get("chi_tiet", [])
+                if chi_tiet_list:
+                    qr_data = (chi_tiet_list[0].get("diem_danh_qr_code") or {}).get("data", {})
+                    thoi_gian_dd = qr_data.get("time")
+                    location = qr_data.get("location", {})
+                    dia_diem = location.get("display_name")
+                    if thoi_gian_dd:
+                        message += f"   - *Thời gian ĐD:* `{thoi_gian_dd}`\n"
+                    if dia_diem:
+                        message += f"   - *Vị trí:* `{dia_diem}`\n"
             
             if timestamp_str:
                 try:
@@ -1074,3 +1095,360 @@ class HocPhanHandler:
         except Exception as e:
             logger.error(f"Error getting học phần list: {e}")
             return []
+
+    # ==================== Command Methods ====================
+
+    async def hoc_phan_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /hocphan"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xem người dùng đã đăng nhập chưa
+        if not await self.db_manager.is_user_logged_in(user_id):
+            await update.message.reply_text("Bạn chưa đăng nhập. Vui lòng /dangnhap để đăng nhập.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Lấy danh sách năm học - học kỳ
+        result = await self.handle_hoc_phan(user_id)
+
+        if result["success"]:
+            # Định dạng dữ liệu năm học - học kỳ thành menu
+            message = self.format_nam_hoc_hoc_ky_message(result["data"])
+
+            # Tạo keyboard cho các nút chọn năm học - học kỳ
+            nam_hoc_hoc_ky_list = self.get_nam_hoc_hoc_ky_list(result["data"])
+            keyboard = []
+
+            # Thêm các nút chọn năm học - học kỳ (tối đa 3 nút mỗi hàng)
+            row = []
+            for i, nam_hoc_hoc_ky in enumerate(nam_hoc_hoc_ky_list):
+                row.append(InlineKeyboardButton(nam_hoc_hoc_ky["name"], callback_data=f"namhoc_{nam_hoc_hoc_ky['key']}"))
+                if len(row) == 3 or i == len(nam_hoc_hoc_ky_list) - 1:
+                    keyboard.append(row)
+                    row = []
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+                reply_to_message_id=update.message.message_id
+            )
+        else:
+            await update.message.reply_text(result['message'], reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+
+    # ==================== Callback Methods ====================
+
+    async def hoc_phan_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý callback từ các nút chọn năm học - học kỳ"""
+        query = update.callback_query
+        user_id = query.from_user.id
+
+        # Lấy callback_data
+        callback_data = query.data
+
+        if callback_data.startswith("namhoc_"):
+            nam_hoc_key = callback_data[7:]  # Bỏ "namhoc_" prefix
+
+            # Hiển thị thông báo đang xử lý
+            await query.answer("Đang tìm kiếm học phần...")
+
+            # Lưu năm học - học kỳ đã chọn vào context
+            context.user_data["selected_nam_hoc"] = nam_hoc_key
+
+            # Lấy danh sách năm học - học kỳ
+            result = await self.handle_hoc_phan(user_id)
+
+            if result["success"]:
+                # Lấy danh sách năm học - học kỳ
+                nam_hoc_hoc_ky_list = self.get_nam_hoc_hoc_ky_list(result["data"])
+
+                # Tìm các năm học - học kỳ phù hợp
+                selected_nam_hoc_list = []
+                for item in nam_hoc_hoc_ky_list:
+                    if item["key"] == nam_hoc_key:
+                        selected_nam_hoc_list.append(item["key"])
+                        break
+
+
+                if selected_nam_hoc_list:
+                    # Tìm kiếm học phần
+                    search_result = await self.handle_search_hoc_phan(user_id, selected_nam_hoc_list)
+
+                    if search_result["success"]:
+                        # Định dạng dữ liệu học phần thành menu
+                        message = self.format_search_hoc_phan_message(search_result["data"])
+
+                        # Tạo keyboard cho các nút chọn học phần
+                        hoc_phan_list = self.get_hoc_phan_list(search_result["data"])
+
+                        keyboard = []
+
+                        # Thêm các nút chọn học phần (tối đa 2 nút mỗi hàng)
+                        row = []
+                        for i, hoc_phan in enumerate(hoc_phan_list):
+                            row.append(InlineKeyboardButton(hoc_phan["name"], callback_data=f"hocphan_{hoc_phan['key']}"))
+                            if len(row) == 2 or i == len(hoc_phan_list) - 1:
+                                keyboard.append(row)
+                                row = []
+
+                        # Thêm nút quay lại
+                        keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")])
+
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+
+                        await query.edit_message_text(
+                            text=message,
+                            reply_markup=reply_markup,
+                            parse_mode="Markdown"
+                        )
+                    else:
+                        # Thêm menu quay lại khi không tìm thấy học phần
+                        keyboard = [
+                            [InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await query.edit_message_text(
+                            text=f"{search_result['message']}",
+                            reply_markup=reply_markup,
+                            parse_mode="Markdown"
+                        )
+                else:
+                    await query.edit_message_text("Không tìm thấy năm học - học kỳ được chọn.")
+            else:
+                await query.edit_message_text(result['message'], parse_mode="Markdown")
+        elif callback_data.startswith("hocphan_"):
+            # Xử lý khi chọn học phần
+            if callback_data == "hocphan_back":
+                # Quay lại menu chọn năm học - học kỳ
+                result = await self.handle_hoc_phan(user_id)
+
+                if result["success"]:
+                    # Định dạng dữ liệu năm học - học kỳ thành menu
+                    message = self.format_nam_hoc_hoc_ky_message(result["data"])
+
+                    # Tạo keyboard cho các nút chọn năm học - học kỳ
+                    nam_hoc_hoc_ky_list = self.get_nam_hoc_hoc_ky_list(result["data"])
+                    keyboard = []
+
+                    # Thêm các nút chọn năm học - học kỳ (tối đa 3 nút mỗi hàng)
+                    row = []
+                    for i, nam_hoc_hoc_ky in enumerate(nam_hoc_hoc_ky_list):
+                        row.append(InlineKeyboardButton(nam_hoc_hoc_ky["name"], callback_data=f"namhoc_{nam_hoc_hoc_ky['key']}"))
+                        if len(row) == 3 or i == len(nam_hoc_hoc_ky_list) - 1:
+                            keyboard.append(row)
+                            row = []
+
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=reply_markup,
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await query.edit_message_text(result['message'], parse_mode="Markdown")
+            else:
+                # Xem chi tiết học phần
+                key_lop_hoc_phan = callback_data.split("hocphan_")[1]
+
+                # Lấy thông tin chi tiết học phần
+                # Lấy năm học - học kỳ đã chọn từ context
+                selected_nam_hoc = context.user_data.get("selected_nam_hoc")
+
+                if not selected_nam_hoc:
+                    # Nếu không có trong context, lấy năm học - học kỳ đầu tiên
+                    result = await self.handle_hoc_phan(user_id)
+                    if result["success"]:
+                        nam_hoc_hoc_ky_list = self.get_nam_hoc_hoc_ky_list(result["data"])
+                        if nam_hoc_hoc_ky_list:
+                            selected_nam_hoc = nam_hoc_hoc_ky_list[0]["key"]
+                        else:
+                            logger.error("No nam_hoc_hoc_ky available")
+                            await query.edit_message_text("Không có năm học - học kỳ nào để tìm kiếm.")
+                            return
+                    else:
+                        await query.edit_message_text(result['message'], parse_mode="Markdown")
+                        return
+
+                # Tìm kiếm học phần với năm học - học kỳ đã chọn
+                search_result = await self.handle_search_hoc_phan(user_id, [selected_nam_hoc])
+
+                if search_result["success"]:
+                    # Tìm học phần phù hợp
+                    hoc_phan_list = search_result["data"].get("hoc_phan_list", [])
+                    logger.info(f"Searching in {len(hoc_phan_list)} hoc_phan items")
+
+                    selected_hoc_phan = None
+
+                    for hoc_phan in hoc_phan_list:
+                        hocphan_key_check = hoc_phan.get("key_check")
+                        if hocphan_key_check == key_lop_hoc_phan:
+                            selected_hoc_phan = hoc_phan
+                            break
+
+                    if selected_hoc_phan:
+                        # Định dạng thông tin chi tiết học phần
+                        message = self.format_hoc_phan_detail_message(selected_hoc_phan)
+
+                        # Tạo keyboard cho các chức năng
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("📋 Danh sách sinh viên", callback_data=f"danhsach_{key_lop_hoc_phan}"),
+                                InlineKeyboardButton("📝 Điểm danh", callback_data=f"diemdanh_lop_hoc_phan_{key_lop_hoc_phan}")
+                            ],
+                            [
+                                InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")
+                            ]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+
+                        await query.edit_message_text(
+                            text=message,
+                            reply_markup=reply_markup,
+                            parse_mode="Markdown"
+                        )
+                    else:
+                        await query.edit_message_text("Không tìm thấy học phần được chọn.")
+                else:
+                    await query.edit_message_text(search_result['message'], parse_mode="Markdown")
+        elif callback_data.startswith("danhsach_"):
+            # Xử lý khi chọn danh sách sinh viên
+            key_lop_hoc_phan = callback_data.split("danhsach_")[1]
+
+            # Hiển thị thông báo đang xử lý
+            await query.answer("Đang tải danh sách sinh viên...")
+
+            # Lấy danh sách sinh viên
+            result = await self.handle_danh_sach_sinh_vien(user_id, key_lop_hoc_phan)
+
+            if result["success"]:
+                # Tạo file Excel
+                try:
+                    # Chạy tác vụ blocking trong một thread riêng
+                    excel_file = await asyncio.to_thread(
+                        self.generate_danh_sach_sinh_vien_xlsx,
+                        result["data"]
+                    )
+
+                    # Gửi file Excel
+                    await query.message.reply_document(
+                        document=excel_file,
+                        filename=f"danh_sach_sinh_vien_{key_lop_hoc_phan}.xlsx",
+                        caption="📋 Danh sách sinh viên lớp học phần"
+                    )
+
+                    # Xóa tin nhắn menu lúc chọn danh sách sinh viên để giao diện sạch sẽ
+                    try:
+                        await query.message.delete()
+                    except Exception as e:
+                        logger.warning(f"Không thể xóa tin nhắn menu: {e}")
+
+                    # Lấy thông tin chi tiết học phần để hiển thị lại
+                    selected_nam_hoc = context.user_data.get("selected_nam_hoc")
+
+                    if not selected_nam_hoc:
+                        # Nếu không có trong context, lấy năm học - học kỳ đầu tiên
+                        result_hoc_phan = await self.handle_hoc_phan(user_id)
+                        if result_hoc_phan["success"]:
+                            nam_hoc_hoc_ky_list = self.get_nam_hoc_hoc_ky_list(result_hoc_phan["data"])
+                            if nam_hoc_hoc_ky_list:
+                                selected_nam_hoc = nam_hoc_hoc_ky_list[0]["key"]
+                            else:
+                                await query.message.reply_text("Không có năm học - học kỳ nào để tìm kiếm.")
+                                return
+                        else:
+                            await query.message.reply_text(result_hoc_phan['message'], parse_mode="Markdown")
+                            return
+
+                    # Tìm kiếm học phần với năm học - học kỳ đã chọn
+                    search_result = await self.handle_search_hoc_phan(user_id, [selected_nam_hoc])
+
+                    if search_result["success"]:
+                        # Tìm học phần phù hợp
+                        hoc_phan_list = search_result["data"].get("hoc_phan_list", [])
+
+                        selected_hoc_phan = None
+
+                        for hoc_phan in hoc_phan_list:
+                            hocphan_key_check = hoc_phan.get("key_check")
+                            if hocphan_key_check == key_lop_hoc_phan:
+                                selected_hoc_phan = hoc_phan
+                                break
+
+                        if selected_hoc_phan:
+                            # Định dạng thông tin chi tiết học phần
+                            message = self.format_hoc_phan_detail_message(selected_hoc_phan)
+
+                            # Tạo keyboard cho các chức năng
+                            keyboard = [
+                                [
+                                    InlineKeyboardButton("📋 Danh sách sinh viên", callback_data=f"danhsach_{key_lop_hoc_phan}"),
+                                    InlineKeyboardButton("📝 Điểm danh", callback_data=f"diemdanh_lop_hoc_phan_{key_lop_hoc_phan}")
+                                ],
+                                [
+                                    InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")
+                                ]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+
+                            # Gửi tin nhắn mới với menu chi tiết học phần
+                            await query.message.reply_text(
+                                text=message,
+                                reply_markup=reply_markup,
+                                parse_mode="Markdown"
+                            )
+                        else:
+                            await query.message.reply_text("Không tìm thấy học phần được chọn.")
+                    else:
+                        await query.message.reply_text(search_result['message'], parse_mode="Markdown")
+
+
+                except Exception as e:
+                    await query.edit_message_text(f"Lỗi tạo file Excel: {str(e)}")
+            else:
+                await query.edit_message_text(result['message'], parse_mode="Markdown")
+        elif callback_data.startswith("diemdanh_lop_hoc_phan_"):
+            # Xử lý khi chọn điểm danh
+            key_lop_hoc_phan = callback_data.split("diemdanh_lop_hoc_phan_")[1]
+
+            # Hiển thị thông báo đang xử lý
+            await query.answer("Đang tải lịch sử điểm danh...")
+
+            # Lấy lịch sử điểm danh
+            result = await self.handle_diem_danh(user_id, key_lop_hoc_phan)
+
+            if result["success"]:
+                # Định dạng lịch sử điểm danh
+                message = self.format_diem_danh_message(result["data"])
+
+                # Tạo keyboard cho các chức năng
+                keyboard = [
+                    [
+                        InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.edit_message_text(result['message'], parse_mode="Markdown")
+        elif callback_data == "lichthi_back":
+            # Xử lý khi quay lại từ lịch thi
+            await query.edit_message_text(
+                "📅 *Lịch Thi*\n\n"
+                "Vui lòng thử lại sau hoặc liên hệ admin nếu vấn đề tiếp tục.",
+                parse_mode="Markdown"
+            )
+
+    def register_commands(self, application: Application) -> None:
+        """Đăng ký command handlers với Application"""
+        application.add_handler(CommandHandler("hocphan", self.hoc_phan_command))
+
+    def register_callbacks(self, application: Application) -> None:
+        """Đăng ký callback handlers với Application"""
+        application.add_handler(CallbackQueryHandler(self.hoc_phan_callback, pattern="^(namhoc_|hocphan_|lichthi_|danhsach_|diemdanh_lop_hoc_phan_)"))

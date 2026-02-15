@@ -11,8 +11,6 @@ from dotenv import load_dotenv
 
 class Config:
     def __init__(self):
-        # Tải biến môi trường từ file .env (chỉ khi chạy local)
-        # Trong Docker, biến môi trường đã được thiết lập sẵn
         env_path = Path('.env')
         if env_path.exists():
             load_dotenv()
@@ -27,8 +25,6 @@ class Config:
         self.HUTECH_TKB_ENDPOINT = "/api-elearning-v2/api/tkb-sinh-vien/xem-tkb"
         self.HUTECH_LICHTHI_ENDPOINT = "/api-elearning-v2/api/lich-thi-sinh-vien/xem-lich-thi"
         self.HUTECH_DIEM_ENDPOINT = "/api-elearning-v2/api/diem-sinh-vien/xem-diem"
-        
-        # Các endpoint API học phần
         self.HUTECH_HOC_PHAN_NAM_HOC_HOC_KY_ENDPOINT = "/api-elearning/api/lop-hoc-phan/sinh-vien/nam-hoc-hoc-ky/get"
         self.HUTECH_HOC_PHAN_SEARCH_ENDPOINT = "/api-elearning/api/lop-hoc-phan/sinh-vien/search"
         self.HUTECH_HOC_PHAN_DIEM_DANH_ENDPOINT = "/api-elearning/api/lop-hoc-phan/sinh-vien/diem-danh/get-list"
@@ -37,14 +33,13 @@ class Config:
         
         # Headers cho API
         self.HUTECH_STUDENT_HEADERS = {
-            "user-agent": "Dart/3.5 (dart:io)",
+            "user-agent": "Dart/3.8 (dart:io)",
             "app-key": "SINHVIEN_DAIHOC",
             "content-type": "application/json"
         }
         
-        # Headers cho API thời khóa biểu
         self.HUTECH_MOBILE_HEADERS = {
-            "user-agent": "Dart/3.5 (dart:io)",
+            "user-agent": "Dart/3.8 (dart:io)",
             "app-key": "MOBILE_HUTECH",
             "content-type": "application/json"
         }

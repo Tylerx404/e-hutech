@@ -11,6 +11,9 @@ import aiohttp
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
+from telegram import Update
+from telegram.ext import ContextTypes, Application, CommandHandler
+
 from config.config import Config
 
 logger = logging.getLogger(__name__)
@@ -288,3 +291,33 @@ class LichThiHandler:
         except Exception as e:
             logger.error(f"Error formatting lịch thi message: {e}")
             return f"Lỗi định dạng lịch thi: {str(e)}"
+
+    # ==================== Command Methods ====================
+
+    async def lichthi_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /lichthi"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xem người dùng đã đăng nhập chưa
+        if not await self.db_manager.is_user_logged_in(user_id):
+            await update.message.reply_text("Bạn chưa đăng nhập. Vui lòng /dangnhap để đăng nhập.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Lấy lịch thi
+        result = await self.handle_lich_thi(user_id)
+
+        if result["success"]:
+            # Định dạng dữ liệu lịch thi
+            message = self.format_lich_thi_message(result["data"])
+
+            await update.message.reply_text(
+                message,
+                parse_mode="Markdown",
+                reply_to_message_id=update.message.message_id
+            )
+        else:
+            await update.message.reply_text(f"Không thể lấy lịch thi: {result.get('message', 'Lỗi không xác định')}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+
+    def register_commands(self, application: Application) -> None:
+        """Đăng ký command handlers với Application"""
+        application.add_handler(CommandHandler("lichthi", self.lichthi_command))

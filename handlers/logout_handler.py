@@ -10,6 +10,9 @@ import logging
 import aiohttp
 from typing import Dict, Any, Optional
 
+from telegram import Update
+from telegram.ext import ContextTypes, Application, CommandHandler
+
 from config.config import Config
 
 logger = logging.getLogger(__name__)
@@ -20,70 +23,85 @@ class LogoutHandler:
         self.cache_manager = cache_manager
         self.config = Config()
     
-    async def handle_logout(self, telegram_user_id: int) -> Dict[str, Any]:
+    async def handle_logout(self, telegram_user_id: int, logout_all: bool = False) -> Dict[str, Any]:
         """
         Xử lý đăng xuất khỏi hệ thống HUTECH
-        
+
         Args:
             telegram_user_id: ID của người dùng trên Telegram
-            
+            logout_all: Nếu True, xóa tất cả tài khoản. Nếu False, chỉ xóa account active.
+
         Returns:
             Dict chứa kết quả đăng xuất
         """
         try:
-            # Lấy token và device UUID của người dùng
-            token = await self._get_user_token(telegram_user_id)
-            device_uuid = await self._get_user_device_uuid(telegram_user_id)
-            
-            if not token:
-                # Tự động sửa lỗi: Nếu DB nói đã login nhưng không có token,
-                # thì tiến hành đăng xuất luôn để đồng bộ trạng thái.
-                logger.warning(f"Không tìm thấy token cho người dùng {telegram_user_id} dù đã đăng nhập. Tự động đăng xuất.")
-                await self.force_logout(telegram_user_id)
-                return {
-                    "success": True,
-                    "message": "Phiên đăng nhập cũ đã hết hạn. Bạn đã được đăng xuất."
-                }
-            
-            if not device_uuid:
+            # Lấy account active hiện tại
+            active_account = await self.db_manager.get_active_account(telegram_user_id)
+
+            if not active_account:
                 return {
                     "success": False,
-                    "message": "Không tìm thấy device UUID. Vui lòng đăng nhập lại."
+                    "message": "Bạn chưa đăng nhập tài khoản nào."
                 }
-            
-            # Tạo request data
-            request_data = {
-                "diuu": device_uuid
-            }
-            
-            # Gọi API đăng xuất
-            response_data = await self._call_logout_api(token, request_data)
-            
-            # Lưu response vào database
-            # Lưu response vào database (Tạm thời bỏ qua vì không quan trọng)
-            # await self._save_logout_response(telegram_user_id, response_data)
-            
-            # Cập nhật trạng thái đăng nhập của người dùng
-            await self.db_manager.set_user_login_status(telegram_user_id, False)
-            
-            # Xóa cache của người dùng
-            await self.cache_manager.clear_user_cache(telegram_user_id)
-            
-            # Kiểm tra kết quả đăng xuất
-            if response_data and not response_data.get("error", False):
+
+            username = active_account.get("username")
+
+            if logout_all:
+                # Xóa tất cả tài khoản
+                # Gọi API logout cho tất cả accounts
+                accounts = await self.db_manager.get_user_accounts(telegram_user_id)
+                for acc in accounts:
+                    token = await self._get_user_token_by_username(telegram_user_id, acc.get("username"))
+                    if token:
+                        device_uuid = await self.db_manager.get_user_device_uuid_by_username(telegram_user_id, acc.get("username"))
+                        if device_uuid:
+                            request_data = {"diuu": device_uuid}
+                            await self._call_logout_api(token, request_data)
+
+                # Xóa tất cả tài khoản trong DB
+                await self.db_manager.delete_all_accounts(telegram_user_id)
+
+                # Xóa cache
+                await self.cache_manager.clear_user_cache(telegram_user_id)
+
                 return {
                     "success": True,
-                    "message": "Đăng xuất thành công",
-                    "data": response_data
+                    "message": "Đã đăng xuất khỏi tất cả tài khoản."
                 }
             else:
-                error_message = response_data.get("message", "Đăng xuất thất bại") if response_data else "Đăng xuất thất bại"
-                return {
-                    "success": False,
-                    "message": error_message,
-                    "data": response_data
-                }
-        
+                # Chỉ xóa account active
+                token = await self._get_user_token_by_username(telegram_user_id, username)
+                device_uuid = await self.db_manager.get_user_device_uuid_by_username(telegram_user_id, username)
+
+                # Gọi API logout nếu có token
+                if token and device_uuid:
+                    request_data = {"diuu": device_uuid}
+                    await self._call_logout_api(token, request_data)
+
+                # Xóa account active
+                await self.db_manager.remove_account(telegram_user_id, username)
+
+                # Kiểm tra còn account nào không
+                remaining_accounts = await self.db_manager.get_user_accounts(telegram_user_id)
+
+                # Xóa cache
+                await self.cache_manager.clear_user_cache(telegram_user_id)
+
+                if remaining_accounts:
+                    # Chuyển sang account khác
+                    next_account = remaining_accounts[0]
+                    await self.db_manager.set_active_account(telegram_user_id, next_account.get("username"))
+                    ho_ten = next_account.get("ho_ten") or next_account.get("username")
+                    return {
+                        "success": True,
+                        "message": f"Đã chuyển sang tài khoản: {ho_ten}"
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "message": "Đăng xuất thành công."
+                    }
+
         except Exception as e:
             logger.error(f"Logout error for user {telegram_user_id}: {e}")
             return {
@@ -91,6 +109,21 @@ class LogoutHandler:
                 "message": f"Lỗi đăng xuất: {str(e)}",
                 "data": None
             }
+
+    async def _get_user_token_by_username(self, telegram_user_id: int, username: str) -> Optional[str]:
+        """
+        Lấy token của người dùng theo username cụ thể.
+        """
+        try:
+            response_data = await self.db_manager.get_user_login_response_by_username(telegram_user_id, username)
+            if not response_data:
+                return None
+
+            return response_data.get("token")
+
+        except Exception as e:
+            logger.error(f"Error getting token for user {telegram_user_id}/{username}: {e}")
+            return None
     
     async def _call_logout_api(self, token: str, request_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -151,27 +184,27 @@ class LogoutHandler:
 
     async def _get_user_token(self, telegram_user_id: int) -> Optional[str]:
         """
-        Lấy token của người dùng từ database. API Logout cần token chính.
+        Lấy token của người dùng từ database (lấy từ account active). API Logout cần token chính.
         """
         try:
             response_data = await self.db_manager.get_user_login_response(telegram_user_id)
             if not response_data:
                 return None
-            
+
             # API đăng xuất cần token chính
             return response_data.get("token")
 
         except Exception as e:
             logger.error(f"Error getting token for user {telegram_user_id}: {e}")
             return None
-    
+
     async def _get_user_device_uuid(self, telegram_user_id: int) -> Optional[str]:
         """
-        Lấy device UUID của người dùng từ database
-        
+        Lấy device UUID của người dùng từ database (lấy từ account active)
+
         Args:
             telegram_user_id: ID của người dùng trên Telegram
-            
+
         Returns:
             Device UUID của người dùng hoặc None nếu không tìm thấy
         """
@@ -180,25 +213,26 @@ class LogoutHandler:
             if user:
                 return user.get("device_uuid")
             return None
-        
+
         except Exception as e:
             logger.error(f"Error getting device UUID for user {telegram_user_id}: {e}")
             return None
-    
+
     async def force_logout(self, telegram_user_id: int) -> Dict[str, Any]:
         """
         Đăng xuất người dùng mà không cần gọi API (dùng khi token không hợp lệ)
-        
+        Xóa tất cả tài khoản.
+
         Args:
             telegram_user_id: ID của người dùng trên Telegram
-            
+
         Returns:
             Dict chứa kết quả đăng xuất
         """
         try:
-            # Cập nhật trạng thái đăng nhập của người dùng
-            success = await self.db_manager.set_user_login_status(telegram_user_id, False)
-            
+            # Xóa tất cả tài khoản
+            success = await self.db_manager.delete_all_accounts(telegram_user_id)
+
             if success:
                 return {
                     "success": True,
@@ -209,10 +243,33 @@ class LogoutHandler:
                     "success": False,
                     "message": "Đăng xuất thất bại"
                 }
-        
+
         except Exception as e:
             logger.error(f"Force logout error for user {telegram_user_id}: {e}")
             return {
                 "success": False,
                 "message": f"Lỗi đăng xuất: {str(e)}"
             }
+
+    # ==================== Command Methods ====================
+
+    async def logout_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Xử lý lệnh /dangxuat"""
+        user_id = update.effective_user.id
+
+        # Kiểm tra xem người dùng đã đăng nhập chưa
+        if not await self.db_manager.is_user_logged_in(user_id):
+            await update.message.reply_text("Bạn chưa đăng nhập.", reply_to_message_id=update.message.message_id)
+            return
+
+        # Thực hiện đăng xuất (xóa account active)
+        result = await self.handle_logout(user_id)
+
+        if result["success"]:
+            await update.message.reply_text(result["message"], reply_to_message_id=update.message.message_id)
+        else:
+            await update.message.reply_text(result['message'], reply_to_message_id=update.message.message_id)
+
+    def register_commands(self, application: Application) -> None:
+        """Đăng ký command handlers với Application"""
+        application.add_handler(CommandHandler("dangxuat", self.logout_command))
