@@ -719,7 +719,7 @@ class TkbHandler:
             context.user_data['tkb_command_message_id'] = update.message.message_id
             context.user_data['tkb_reply_message_id'] = sent_message.message_id
         else:
-            await update.message.reply_text(f"Không thể lấy thời khóa biểu: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+            await update.message.reply_text(result['message'], reply_to_message_id=update.message.message_id)
 
     # ==================== Callback Methods ====================
 
@@ -812,7 +812,7 @@ class TkbHandler:
                     parse_mode="Markdown"
                 )
             else:
-                await query.edit_message_text(f"Không thể lấy thời khóa biểu: {result['message']}", parse_mode="Markdown")
+                await query.edit_message_text(result['message'])
 
     async def _handle_tkb_subject_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ menu chọn môn học"""

@@ -1131,7 +1131,7 @@ class HocPhanHandler:
                 reply_to_message_id=update.message.message_id
             )
         else:
-            await update.message.reply_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}", reply_to_message_id=update.message.message_id, parse_mode="Markdown")
+            await update.message.reply_text(result['message'], reply_to_message_id=update.message.message_id, parse_mode="Markdown")
 
     # ==================== Callback Methods ====================
 
@@ -1212,7 +1212,7 @@ class HocPhanHandler:
                 else:
                     await query.edit_message_text("Không tìm thấy năm học - học kỳ được chọn.")
             else:
-                await query.edit_message_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}", parse_mode="Markdown")
+                await query.edit_message_text(result['message'], parse_mode="Markdown")
         elif callback_data.startswith("hocphan_"):
             # Xử lý khi chọn học phần
             if callback_data == "hocphan_back":
@@ -1243,7 +1243,7 @@ class HocPhanHandler:
                         parse_mode="Markdown"
                     )
                 else:
-                    await query.edit_message_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}")
+                    await query.edit_message_text(result['message'], parse_mode="Markdown")
             else:
                 # Xem chi tiết học phần
                 key_lop_hoc_phan = callback_data.split("hocphan_")[1]
@@ -1264,7 +1264,7 @@ class HocPhanHandler:
                             await query.edit_message_text("Không có năm học - học kỳ nào để tìm kiếm.")
                             return
                     else:
-                        await query.edit_message_text(f"Không thể lấy danh sách năm học - học kỳ: {result['message']}", parse_mode="Markdown")
+                        await query.edit_message_text(result['message'], parse_mode="Markdown")
                         return
 
                 # Tìm kiếm học phần với năm học - học kỳ đã chọn
@@ -1307,7 +1307,7 @@ class HocPhanHandler:
                     else:
                         await query.edit_message_text("Không tìm thấy học phần được chọn.")
                 else:
-                    await query.edit_message_text(f"Không thể tìm kiếm học phần: {search_result['message']}", parse_mode="Markdown")
+                    await query.edit_message_text(search_result['message'], parse_mode="Markdown")
         elif callback_data.startswith("danhsach_"):
             # Xử lý khi chọn danh sách sinh viên
             key_lop_hoc_phan = callback_data.split("danhsach_")[1]
@@ -1397,7 +1397,7 @@ class HocPhanHandler:
                         else:
                             await query.message.reply_text("Không tìm thấy học phần được chọn.")
                     else:
-                        await query.message.reply_text(f"Không thể tìm kiếm học phần: {search_result['message']}", parse_mode="Markdown")
+                        await query.message.reply_text(search_result['message'], parse_mode="Markdown")
 
 
                 except Exception as e:
@@ -1432,7 +1432,7 @@ class HocPhanHandler:
                     parse_mode="Markdown"
                 )
             else:
-                await query.edit_message_text(f"Không thể lấy lịch sử điểm danh: {result['message']}", parse_mode="Markdown")
+                await query.edit_message_text(result['message'], parse_mode="Markdown")
         elif callback_data == "lichthi_back":
             # Xử lý khi quay lại từ lịch thi
             await query.edit_message_text(

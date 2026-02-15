@@ -847,7 +847,7 @@ class DiemHandler:
                         parse_mode="Markdown"
                     )
                 else:
-                    await query.edit_message_text(f"{result['message']}", parse_mode="Markdown")
+                    await query.edit_message_text(result['message'], parse_mode="Markdown")
 
             elif hocky_key.startswith("export_"):
                 # Xử lý xuất file Excel
@@ -912,7 +912,7 @@ class DiemHandler:
                         logger.error(f"Lỗi tạo file Excel: {e}", exc_info=True)
                         await query.edit_message_text(f"Lỗi tạo file Excel: {str(e)}")
                 else:
-                    await query.edit_message_text(f"Không thể lấy dữ liệu điểm để xuất file: {result['message']}", parse_mode="Markdown")
+                    await query.edit_message_text(result['message'], parse_mode="Markdown")
             else:
                 # Xem điểm chi tiết của học kỳ được chọn
                 result = await self.handle_diem(user_id, hocky_key)
@@ -936,7 +936,7 @@ class DiemHandler:
                         parse_mode="Markdown"
                     )
                 else:
-                    await query.edit_message_text(f"Không thể lấy điểm chi tiết: {result['message']}", parse_mode="Markdown")
+                    await query.edit_message_text(result['message'], parse_mode="Markdown")
 
     def register_commands(self, application: Application) -> None:
         """Đăng ký command handlers với Application"""

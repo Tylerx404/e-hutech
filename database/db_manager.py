@@ -73,11 +73,6 @@ class DatabaseManager:
                     )
                 ''')
 
-                # Migration: Thêm cột preferred_campus nếu chưa tồn tại
-                await conn.execute('''
-                    ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_campus TEXT
-                ''')
-
                 # Các bảng khác sẽ được tạo tương tự khi cần
                 # Ví dụ cho tkb_responses
                 logger.info("Database initialized successfully")

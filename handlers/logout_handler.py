@@ -268,7 +268,7 @@ class LogoutHandler:
         if result["success"]:
             await update.message.reply_text(result["message"], reply_to_message_id=update.message.message_id)
         else:
-            await update.message.reply_text(f"Đăng xuất thất bại: {result['message']}", reply_to_message_id=update.message.message_id)
+            await update.message.reply_text(result['message'], reply_to_message_id=update.message.message_id)
 
     def register_commands(self, application: Application) -> None:
         """Đăng ký command handlers với Application"""
