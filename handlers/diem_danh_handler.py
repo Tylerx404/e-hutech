@@ -607,13 +607,8 @@ class DiemDanhHandler:
                     parse_mode="Markdown"
                 )
             else:
-                # Tạo keyboard với nút quay lại
-                keyboard = [[InlineKeyboardButton("⬅️ Quay lại", callback_data="num_exit")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
                 await query.edit_message_text(
                     text=f"{result['message']}",
-                    reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
 
