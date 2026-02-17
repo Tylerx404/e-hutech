@@ -1,113 +1,133 @@
-# HUTECH Telegram Bot
+<div align="center">
 
-Bot Telegram đa chức năng được thiết kế dành riêng cho sinh viên HUTECH, giúp truy cập thông tin học tập một cách nhanh chóng và thuận tiện ngay trên nền tảng Telegram.
+# e-HUTECH Telegram Bot
 
-## ✨ Tính năng nổi bật
+<img src="images/bot-preview.png" alt="HUTECH Bot Preview" width="320"/>
 
-| Lệnh | Chức năng |
-| :--- | :--- |
-| `/start` | Bắt đầu tương tác và hiển thị danh sách các lệnh có sẵn. |
-| `/dangnhap` | Đăng nhập vào tài khoản sinh viên cá nhân. |
-| `/dangxuat` | Đăng xuất khỏi tài khoản. |
-| `/tkb` | Xem thời khóa biểu tuần hiện tại và xuất tệp iCalendar (.ics). |
-| `/lichthi` | Xem lịch thi các môn sắp tới. |
-| `/diem` | Xem điểm số và xuất ra tệp Excel. |
-| `/hocphan` | Tra cứu thông tin chi tiết về học phần, danh sách lớp, và lịch sử điểm danh. |
-| `/diemdanh` | Thực hiện điểm danh nhanh chóng bằng mã. |
-| `/trogiup` | Hiển thị thông tin trợ giúp chi tiết. |
-| `/huy` | Hủy bỏ thao tác đang thực hiện. |
+**Bot Telegram da chuc nang danh rieng cho sinh vien HUTECH**
+**Truy cap thong tin hoc tap nhanh chong va thuan tien ngay tren Telegram.**
 
-## 🚀 Hướng dẫn Cài đặt và Chạy
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Telegram Bot API](https://img.shields.io/badge/Telegram_Bot_API-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 
-### Yêu cầu tiên quyết
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/Tylerx404/e-hutech?style=for-the-badge&logo=github)](https://github.com/Tylerx404/e-hutech/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/Tylerx404/e-hutech?style=for-the-badge&logo=github)](https://github.com/Tylerx404/e-hutech/issues)
+[![GitHub last commit](https://img.shields.io/github/last-commit/Tylerx404/e-hutech?style=for-the-badge&logo=github)](https://github.com/Tylerx404/e-hutech/commits/main)
+
+---
+
+</div>
+
+## Gioi thieu
+
+HUTECH Telegram Bot la cong cu ho tro sinh vien Dai hoc Cong nghe TP.HCM (HUTECH) truy cap nhanh cac thong tin hoc tap nhu **thoi khoa bieu**, **lich thi**, **diem so**, **diem danh** va nhieu tinh nang khac — tat ca ngay tren nen tang Telegram.
+
+## Tinh nang
+
+| Lenh | Chuc nang | Mo ta |
+| :--- | :--- | :--- |
+| `/dangnhap` | Dang nhap | Dang nhap vao he thong HUTECH |
+| `/danhsach` | Danh sach | Xem danh sach tai khoan da dang nhap |
+| `/vitri` | Vi tri | Cai dat vi tri diem danh mac dinh |
+| `/diemdanh` | Diem danh | Diem danh cho tai khoan hien tai |
+| `/diemdanhtatca` | Diem danh tat ca | Diem danh tat ca tai khoan cung luc |
+| `/tkb` | Thoi khoa bieu | Xem TKB & xuat file iCalendar `.ics` |
+| `/lichthi` | Lich thi | Xem lich thi cac mon sap toi |
+| `/diem` | Diem so | Xem diem & xuat file Excel `.xlsx` |
+| `/hocphan` | Hoc phan | Tra cuu hoc phan, danh sach lop, lich su diem danh |
+| `/trogiup` | Tro giup | Hien thi thong tin tro giup chi tiet |
+| `/dangxuat` | Dang xuat | Ngat ket noi tai khoan |
+
+## Cai dat va Chay
+
+### Yeu cau tien quyet
 
 - [Python 3.10+](https://www.python.org/downloads/)
 - [Git](https://git-scm.com/downloads)
-- [Docker](https://www.docker.com/products/docker-desktop/) (Khuyến khích cho việc triển khai)
+- [Docker](https://www.docker.com/products/docker-desktop/) (khuyen khich)
 
-### Cài đặt chung
+### Buoc 1: Clone repository
 
-1.  **Clone repository về máy của bạn:**
-    ```bash
-    git clone https://github.com/vantaidinh04/e-hutech.git
-    cd e-hutech
-    ```
+```bash
+git clone https://github.com/Tylerx404/e-hutech.git
+cd e-hutech
+```
 
-2.  **Cấu hình môi trường:**
-    Sao chép tệp cấu hình mẫu và điền thông tin cần thiết.
-    ```bash
-    cp .env.example .env
-    ```
-    Sau đó, mở tệp `.env` và điền `TELEGRAM_BOT_TOKEN` của bạn.
+### Buoc 2: Cau hinh moi truong
 
-### Lựa chọn 1: Chạy với Docker (Khuyến khích)
+```bash
+cp .env.example .env
+```
 
-Đây là phương pháp được khuyến khích để đảm bảo tính nhất quán và dễ dàng triển khai.
+Mo file `.env` va dien cac thong tin can thiet:
 
-1.  **Build và chạy container:**
-    ```bash
-    docker-compose up --build -d
-    ```
-    Lệnh này sẽ:
-    - Tạo và khởi động các container cho PostgreSQL, Redis và bot
-    - Tự động kiểm tra sức khỏe của các dịch vụ
-    - Bot sẽ chỉ khởi động sau khi PostgreSQL và Redis sẵn sàng
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+POSTGRES_URL=postgresql://user:password@postgres:5432/db_name
+REDIS_URL=redis://redis:6379/cache_name
+```
 
-2.  **Kiểm tra logs (tùy chọn):**
-    ```bash
-    docker-compose logs -f hutech-bot  # Chỉ xem logs của bot
-    docker-compose logs -f            # Xem logs của tất cả services
-    ```
+> **Tip:** Lay `TELEGRAM_BOT_TOKEN` tu [@BotFather](https://t.me/BotFather) tren Telegram.
 
-3.  **Kiểm tra trạng thái các container:**
-    ```bash
-    docker-compose ps
-    ```
+---
 
-4.  **Dừng bot:**
-    ```bash
-    docker-compose down    # Dừng và xóa containers
-    docker-compose down -v # Dừng và xóa containers kèm volumes
-    ```
+### Lua chon A: Docker (Khuyen khich)
 
-5.  **Khởi động lại sau khi thay
-    ```bash
-    docker-compose up --build -d --force-recreate
-    ```
+```bash
+# Build va khoi dong tat ca services
+docker-compose up --build -d
 
-### Lựa chọn 2: Chạy ở môi trường cục bộ
+# Kiem tra trang thai
+docker-compose ps
 
-Phương pháp này phù hợp cho việc phát triển và gỡ lỗi.
+# Xem logs
+docker-compose logs -f hutech-bot
 
-**Lưu ý:** Bạn cần cài đặt và chạy PostgreSQL và Redis trên máy local trước khi chạy bot.
+# Dung services
+docker-compose down
+```
 
-1.  **Tạo và kích hoạt môi trường ảo:**
-    -   **Trên macOS/Linux:**
-        ```bash
-        python3 -m venv venv
-        source venv/bin/activate
-        ```
-    -   **Trên Windows:**
-        ```bash
-        python -m venv venv
-        .\venv\Scripts\activate
-        ```
+Docker Compose se tu dong khoi dong **PostgreSQL**, **Redis** va **Bot** voi health check day du.
 
-2.  **Cài đặt các thư viện cần thiết:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+### Lua chon B: Chay local
 
-3.  **Khởi chạy bot:**
-    ```bash
-    python bot.py
-    ```
+> **Luu y:** Can cai dat va chay PostgreSQL va Redis tren may local truoc.
 
-4.  **Ngắt kích hoạt môi trường ảo khi hoàn tất:**
-    ```bash
-    deactivate
-    ```
+```bash
+# Tao moi truong ao
+python3 -m venv venv
+source venv/bin/activate   # macOS/Linux
+# .\venv\Scripts\activate  # Windows
 
-## 📝 Giấy phép
+# Cai dat dependencies
+pip install -r requirements.txt
 
-Dự án này được cấp phép theo Giấy phép Công cộng GNU phiên bản 3. Xem chi tiết tại tệp [LICENSE](LICENSE).
+# Khoi chay bot
+python bot.py
+```
+
+## Docker Services
+
+| Service | Image | Port | Chuc nang |
+| :--- | :--- | :--- | :--- |
+| `hutech-bot` | Custom build | - | Telegram Bot chinh |
+| `postgres` | `postgres:latest` | `5432` | Co so du lieu |
+| `redis` | `redis:latest` | `6379` | Cache layer |
+
+## Giay phep
+
+Du an nay duoc cap phep theo **GNU General Public License v3.0** — xem chi tiet tai file [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**Neu du an huu ich, hay cho mot** :star: **tren GitHub!**
+
+Made with :heart: for HUTECH students
+
+</div>
