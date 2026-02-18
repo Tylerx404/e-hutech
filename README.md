@@ -4,8 +4,8 @@
 
 <img src="images/bot-preview.png" alt="HUTECH Bot Preview" width="320"/>
 
-**Bot Telegram da chuc nang danh rieng cho sinh vien HUTECH**
-**Truy cap thong tin hoc tap nhanh chong va thuan tien ngay tren Telegram.**
+**Bot Telegram đa chức năng dành riêng cho sinh viên HUTECH**
+**Truy cập thông tin học tập nhanh chóng và thuận tiện ngay trên Telegram.**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Telegram Bot API](https://img.shields.io/badge/Telegram_Bot_API-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
@@ -22,48 +22,48 @@
 
 </div>
 
-## Gioi thieu
+## Giới thiệu
 
-HUTECH Telegram Bot la cong cu ho tro sinh vien Dai hoc Cong nghe TP.HCM (HUTECH) truy cap nhanh cac thong tin hoc tap nhu **thoi khoa bieu**, **lich thi**, **diem so**, **diem danh** va nhieu tinh nang khac — tat ca ngay tren nen tang Telegram.
+e-HUTECH Telegram Bot là công cụ hỗ trợ sinh viên Đại học Công nghệ TP.HCM (HUTECH) truy cập nhanh các thông tin học tập như **thời khóa biểu**, **lịch thi**, **điểm số**, **điểm danh** và nhiều tính năng khác — tất cả ngay trên nền tảng Telegram.
 
-## Tinh nang
+## Tính năng
 
-| Lenh | Chuc nang | Mo ta |
+| Lệnh | Chức năng | Mô tả |
 | :--- | :--- | :--- |
-| `/dangnhap` | Dang nhap | Dang nhap vao he thong HUTECH |
-| `/danhsach` | Danh sach | Xem danh sach tai khoan da dang nhap |
-| `/vitri` | Vi tri | Cai dat vi tri diem danh mac dinh |
-| `/diemdanh` | Diem danh | Diem danh cho tai khoan hien tai |
-| `/diemdanhtatca` | Diem danh tat ca | Diem danh tat ca tai khoan cung luc |
-| `/tkb` | Thoi khoa bieu | Xem TKB & xuat file iCalendar `.ics` |
-| `/lichthi` | Lich thi | Xem lich thi cac mon sap toi |
-| `/diem` | Diem so | Xem diem & xuat file Excel `.xlsx` |
-| `/hocphan` | Hoc phan | Tra cuu hoc phan, danh sach lop, lich su diem danh |
-| `/trogiup` | Tro giup | Hien thi thong tin tro giup chi tiet |
-| `/dangxuat` | Dang xuat | Ngat ket noi tai khoan |
+| `/dangnhap` | Đăng nhập | Đăng nhập vào hệ thống HUTECH |
+| `/danhsach` | Danh sách | Xem danh sách tài khoản đã đăng nhập |
+| `/vitri` | Vị trí | Cài đặt vị trí điểm danh mặc định |
+| `/diemdanh` | Điểm danh | Điểm danh cho tài khoản hiện tại |
+| `/diemdanhtatca` | Điểm danh tất cả | Điểm danh tất cả tài khoản cùng lúc |
+| `/tkb` | Thời khóa biểu | Xem TKB & xuất file iCalendar `.ics` |
+| `/lichthi` | Lịch thi | Xem lịch thi các môn sắp tới |
+| `/diem` | Điểm số | Xem điểm & xuất file Excel `.xlsx` |
+| `/hocphan` | Học phần | Tra cứu học phần, danh sách lớp, lịch sử điểm danh |
+| `/trogiup` | Trợ giúp | Hiển thị thông tin trợ giúp chi tiết |
+| `/dangxuat` | Đăng xuất | Ngắt kết nối tài khoản |
 
-## Cai dat va Chay
+## Cài đặt và Chạy
 
-### Yeu cau tien quyet
+### Yêu cầu tiên quyết
 
 - [Python 3.10+](https://www.python.org/downloads/)
 - [Git](https://git-scm.com/downloads)
-- [Docker](https://www.docker.com/products/docker-desktop/) (khuyen khich)
+- [Docker](https://www.docker.com/products/docker-desktop/) (khuyến khích)
 
-### Buoc 1: Clone repository
+### Bước 1: Clone repository
 
 ```bash
 git clone https://github.com/Tylerx404/e-hutech.git
 cd e-hutech
 ```
 
-### Buoc 2: Cau hinh moi truong
+### Bước 2: Cấu hình môi trường
 
 ```bash
 cp .env.example .env
 ```
 
-Mo file `.env` va dien cac thong tin can thiet:
+Mở file `.env` và điền các thông tin cần thiết:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
@@ -71,62 +71,62 @@ POSTGRES_URL=postgresql://user:password@postgres:5432/db_name
 REDIS_URL=redis://redis:6379/cache_name
 ```
 
-> **Tip:** Lay `TELEGRAM_BOT_TOKEN` tu [@BotFather](https://t.me/BotFather) tren Telegram.
+> **Mẹo:** Lấy `TELEGRAM_BOT_TOKEN` từ [@BotFather](https://t.me/BotFather) trên Telegram.
 
 ---
 
-### Lua chon A: Docker (Khuyen khich)
+### Lựa chọn A: Docker (Khuyến khích)
 
 ```bash
-# Build va khoi dong tat ca services
+# Build và khởi động tất cả services
 docker-compose up --build -d
 
-# Kiem tra trang thai
+# Kiểm tra trạng thái
 docker-compose ps
 
 # Xem logs
 docker-compose logs -f hutech-bot
 
-# Dung services
+# Dừng services
 docker-compose down
 ```
 
-Docker Compose se tu dong khoi dong **PostgreSQL**, **Redis** va **Bot** voi health check day du.
+Docker Compose sẽ tự động khởi động **PostgreSQL**, **Redis** và **Bot** với health check đầy đủ.
 
-### Lua chon B: Chay local
+### Lựa chọn B: Chạy local
 
-> **Luu y:** Can cai dat va chay PostgreSQL va Redis tren may local truoc.
+> **Lưu ý:** Cần cài đặt và chạy PostgreSQL và Redis trên máy local trước.
 
 ```bash
-# Tao moi truong ao
+# Tạo môi trường ảo
 python3 -m venv venv
 source venv/bin/activate   # macOS/Linux
 # .\venv\Scripts\activate  # Windows
 
-# Cai dat dependencies
+# Cài đặt dependencies
 pip install -r requirements.txt
 
-# Khoi chay bot
+# Khởi chạy bot
 python bot.py
 ```
 
 ## Docker Services
 
-| Service | Image | Port | Chuc nang |
+| Service | Image | Port | Chức năng |
 | :--- | :--- | :--- | :--- |
-| `hutech-bot` | Custom build | - | Telegram Bot chinh |
-| `postgres` | `postgres:latest` | `5432` | Co so du lieu |
+| `hutech-bot` | Custom build | - | Telegram Bot chính |
+| `postgres` | `postgres:latest` | `5432` | Cơ sở dữ liệu |
 | `redis` | `redis:latest` | `6379` | Cache layer |
 
-## Giay phep
+## Giấy phép
 
-Du an nay duoc cap phep theo **GNU General Public License v3.0** — xem chi tiet tai file [LICENSE](LICENSE).
+Dự án này được cấp phép theo **GNU General Public License v3.0** — xem chi tiết tại file [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
 
-**Neu du an huu ich, hay cho mot** :star: **tren GitHub!**
+**Nếu dự án hữu ích, hãy cho một** :star: **trên GitHub!**
 
 Made with :heart: for HUTECH students
 
