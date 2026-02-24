@@ -73,6 +73,18 @@ class DatabaseManager:
                     )
                 ''')
 
+                # Tạo bảng lưu trạng thái chấp nhận chính sách
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS user_consents (
+                        id SERIAL PRIMARY KEY,
+                        telegram_user_id BIGINT NOT NULL UNIQUE,
+                        accepted BOOLEAN NOT NULL DEFAULT FALSE,
+                        accepted_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
                 # Các bảng khác sẽ được tạo tương tự khi cần
                 # Ví dụ cho tkb_responses
                 logger.info("Database initialized successfully")
@@ -370,6 +382,36 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting device UUID for user {telegram_user_id}/{username}: {e}")
             return None
+
+    async def has_accepted_policy(self, telegram_user_id: int) -> bool:
+        """Kiểm tra người dùng đã chấp nhận chính sách hay chưa."""
+        query = "SELECT accepted FROM user_consents WHERE telegram_user_id = $1 LIMIT 1"
+        try:
+            async with self.pool.acquire() as conn:
+                record = await conn.fetchrow(query, telegram_user_id)
+            return bool(record and record["accepted"])
+        except Exception as e:
+            logger.error(f"Error checking policy consent for user {telegram_user_id}: {e}")
+            return False
+
+    async def set_policy_consent(self, telegram_user_id: int, accepted: bool) -> bool:
+        """Lưu trạng thái chấp nhận/từ chối chính sách của người dùng."""
+        query = '''
+            INSERT INTO user_consents (telegram_user_id, accepted, accepted_at, updated_at)
+            VALUES ($1, $2, CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP)
+            ON CONFLICT (telegram_user_id) DO UPDATE SET
+                accepted = EXCLUDED.accepted,
+                accepted_at = EXCLUDED.accepted_at,
+                updated_at = CURRENT_TIMESTAMP
+        '''
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(query, telegram_user_id, accepted)
+            logger.info(f"Policy consent updated for user {telegram_user_id}: accepted={accepted}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating policy consent for user {telegram_user_id}: {e}")
+            return False
 
     async def get_user_preferred_campus(self, telegram_user_id: int) -> Optional[str]:
         """Lấy campus ưu tiên của người dùng."""

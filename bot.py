@@ -25,6 +25,7 @@ from handlers.diem_danh_handler import DiemDanhHandler
 from handlers.diem_danh_tat_ca_handler import DiemDanhTatCaHandler
 from handlers.danh_sach_handler import DanhSachHandler
 from handlers.vi_tri_handler import ViTriHandler
+from handlers.chinh_sach_handler import ChinhSachHandler
 
 # Cấu hình logging
 logging.basicConfig(
@@ -51,9 +52,21 @@ class HutechBot:
         self.diem_danh_tat_ca_handler = DiemDanhTatCaHandler(self.db_manager, self.cache_manager)
         self.vi_tri_handler = ViTriHandler(self.db_manager)
         self.danh_sach_handler = DanhSachHandler(self.db_manager, self.cache_manager, self.logout_handler)
+        self.chinh_sach_handler = ChinhSachHandler(self.db_manager, self.cache_manager)
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /start"""
+        user_id = update.effective_user.id
+        consented = await self.chinh_sach_handler.has_user_consented(user_id)
+
+        if not consented:
+            await update.message.reply_text(
+                "Bạn cần chấp nhận chính sách bảo mật trước khi sử dụng các tính năng chính.",
+                reply_to_message_id=update.message.message_id
+            )
+            await self.chinh_sach_handler.send_policy_prompt(update)
+            return
+
         user = update.effective_user
         await update.message.reply_html(
             f"Chào {user.mention_html()}! Tôi là bot HUTECH.\n\n"
@@ -67,12 +80,24 @@ class HutechBot:
             f"/diem để xem điểm của bạn.\n"
             f"/hocphan để xem thông tin học phần.\n"
             f"/trogiup để xem các lệnh có sẵn.\n"
+            f"/chinhsach để xem/chấp nhận chính sách bảo mật.\n"
             f"/dangxuat để đăng xuất khỏi hệ thống.",
             reply_to_message_id=update.message.message_id
         )
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /help"""
+        user_id = update.effective_user.id
+        consented = await self.chinh_sach_handler.has_user_consented(user_id)
+
+        if not consented:
+            await update.message.reply_text(
+                "Bạn chưa chấp nhận chính sách. Vui lòng chọn Chấp nhận để tiếp tục sử dụng bot.",
+                reply_to_message_id=update.message.message_id
+            )
+            await self.chinh_sach_handler.send_policy_prompt(update)
+            return
+
         help_text = """
 Các lệnh có sẵn:
 
@@ -86,12 +111,18 @@ Các lệnh có sẵn:
 /diem - Xem điểm
 /hocphan - Xem thông tin học phần
 /trogiup - Hiển thị trợ giúp
+/chinhsach - Xem/chấp nhận chính sách bảo mật
 /dangxuat - Đăng xuất khỏi hệ thống
         """
         await update.message.reply_text(help_text, reply_to_message_id=update.message.message_id)
 
     def setup_handlers(self, application: Application) -> None:
         """Thiết lập các handler cho bot"""
+        # Chính sách bảo mật: callback + command + guard
+        self.chinh_sach_handler.register_callbacks(application, group=-2)
+        self.chinh_sach_handler.register_commands(application, group=-2)
+        self.chinh_sach_handler.register_guards(application, group=-1)
+
         # Basic commands (giữ trong bot.py)
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("trogiup", self.help_command))
