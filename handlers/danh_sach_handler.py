@@ -48,7 +48,7 @@ class DanhSachHandler:
         """Xử lý lệnh /danhsach - Hiển thị danh sách tài khoản đã đăng nhập"""
         user_id = update.effective_user.id
 
-        accounts = await self.db_manager.get_user_accounts(user_id)
+        accounts = await self.db_manager.get_user_accounts(user_id, order_by_login_time=True)
 
         if not accounts:
             await update.message.reply_text(
@@ -84,12 +84,12 @@ class DanhSachHandler:
         callback_data = query.data
 
         if callback_data.startswith("switch_account_"):
-            username = callback_data.split("_")[2]
+            username = callback_data[len("switch_account_"):]
             await self.db_manager.set_active_account(user_id, username)
             await self.cache_manager.clear_user_cache(user_id)
 
             # Refresh menu
-            accounts = await self.db_manager.get_user_accounts(user_id)
+            accounts = await self.db_manager.get_user_accounts(user_id, order_by_login_time=True)
             # Lấy tài khoản đang active (sau khi đã chuyển)
             active_account = await self.db_manager.get_active_account(user_id)
             active_username = active_account.get('username') if active_account else None
