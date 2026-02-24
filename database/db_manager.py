@@ -228,10 +228,19 @@ class DatabaseManager:
 
     async def remove_account(self, telegram_user_id: int, username: str) -> bool:
         """Xóa một tài khoản cụ thể."""
-        query = "DELETE FROM users WHERE telegram_user_id = $1 AND username = $2"
         try:
             async with self.pool.acquire() as conn:
-                await conn.execute(query, telegram_user_id, username)
+                async with conn.transaction():
+                    await conn.execute(
+                        "DELETE FROM login_responses WHERE telegram_user_id = $1 AND username = $2",
+                        telegram_user_id,
+                        username
+                    )
+                    await conn.execute(
+                        "DELETE FROM users WHERE telegram_user_id = $1 AND username = $2",
+                        telegram_user_id,
+                        username
+                    )
             logger.info(f"Account {username} removed for user {telegram_user_id}")
             return True
         except Exception as e:
@@ -240,10 +249,17 @@ class DatabaseManager:
 
     async def delete_all_accounts(self, telegram_user_id: int) -> bool:
         """Xóa tất cả tài khoản của người dùng."""
-        query = "DELETE FROM users WHERE telegram_user_id = $1"
         try:
             async with self.pool.acquire() as conn:
-                await conn.execute(query, telegram_user_id)
+                async with conn.transaction():
+                    await conn.execute(
+                        "DELETE FROM login_responses WHERE telegram_user_id = $1",
+                        telegram_user_id
+                    )
+                    await conn.execute(
+                        "DELETE FROM users WHERE telegram_user_id = $1",
+                        telegram_user_id
+                    )
             logger.info(f"All accounts deleted for user {telegram_user_id}")
             return True
         except Exception as e:
