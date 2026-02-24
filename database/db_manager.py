@@ -119,16 +119,32 @@ class DatabaseManager:
             logger.error(f"Error saving login response for user {telegram_user_id}/{username}: {e}")
             return False
 
-    async def get_user_accounts(self, telegram_user_id: int) -> List[Dict[str, Any]]:
-        """Lấy danh sách tất cả tài khoản của người dùng."""
-        query = '''
-            SELECT u.telegram_user_id, u.username, u.device_uuid, u.is_active, u.created_at,
-                   lr.ho_ten
-            FROM users u
-            LEFT JOIN login_responses lr ON u.telegram_user_id = lr.telegram_user_id AND u.username = lr.username
-            WHERE u.telegram_user_id = $1
-            ORDER BY u.is_active DESC, u.created_at DESC
-        '''
+    async def get_user_accounts(self, telegram_user_id: int, order_by_login_time: bool = False) -> List[Dict[str, Any]]:
+        """
+        Lấy danh sách tất cả tài khoản của người dùng.
+
+        Args:
+            telegram_user_id: ID người dùng Telegram
+            order_by_login_time: Nếu True, sắp xếp theo thời điểm đăng nhập đầu tiên (cũ -> mới)
+        """
+        if order_by_login_time:
+            query = '''
+                SELECT u.telegram_user_id, u.username, u.device_uuid, u.is_active, u.created_at,
+                       lr.ho_ten
+                FROM users u
+                LEFT JOIN login_responses lr ON u.telegram_user_id = lr.telegram_user_id AND u.username = lr.username
+                WHERE u.telegram_user_id = $1
+                ORDER BY u.created_at ASC
+            '''
+        else:
+            query = '''
+                SELECT u.telegram_user_id, u.username, u.device_uuid, u.is_active, u.created_at,
+                       lr.ho_ten
+                FROM users u
+                LEFT JOIN login_responses lr ON u.telegram_user_id = lr.telegram_user_id AND u.username = lr.username
+                WHERE u.telegram_user_id = $1
+                ORDER BY u.is_active DESC, u.created_at DESC
+            '''
         try:
             async with self.pool.acquire() as conn:
                 records = await conn.fetch(query, telegram_user_id)
