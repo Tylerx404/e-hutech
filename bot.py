@@ -8,6 +8,7 @@ File chính để khởi chạy bot
 
 import logging
 import asyncio
+from contextlib import suppress
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -26,12 +27,10 @@ from handlers.diem_danh_tat_ca_handler import DiemDanhTatCaHandler
 from handlers.danh_sach_handler import DanhSachHandler
 from handlers.vi_tri_handler import ViTriHandler
 from handlers.chinh_sach_handler import ChinhSachHandler
+from utils.logging_config import setup_logging
 
-# Cấu hình logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+# Cấu hình logging tập trung theo biến môi trường (LOG_LEVEL, LOG_JSON).
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +52,37 @@ class HutechBot:
         self.vi_tri_handler = ViTriHandler(self.db_manager)
         self.danh_sach_handler = DanhSachHandler(self.db_manager, self.cache_manager, self.logout_handler)
         self.chinh_sach_handler = ChinhSachHandler(self.db_manager, self.cache_manager)
+
+    async def global_error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Bắt các lỗi chưa được xử lý trong pipeline của Telegram."""
+        update_id = None
+        user_id = None
+        chat_id = None
+
+        if isinstance(update, Update):
+            update_id = update.update_id
+            if update.effective_user:
+                user_id = update.effective_user.id
+            if update.effective_chat:
+                chat_id = update.effective_chat.id
+
+        error = context.error
+        if error:
+            logger.error(
+                "Unhandled update error | update_id=%s user_id=%s chat_id=%s",
+                update_id,
+                user_id,
+                chat_id,
+                exc_info=(type(error), error, error.__traceback__),
+            )
+            return
+
+        logger.error(
+            "Unhandled update error | update_id=%s user_id=%s chat_id=%s",
+            update_id,
+            user_id,
+            chat_id,
+        )
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /start"""
@@ -161,16 +191,11 @@ Các lệnh có sẵn:
         while True:
             await asyncio.sleep(600)  # Chờ 10 phút
 
-            logger.info("Bắt đầu tác vụ tự động làm mới cache...")
             logged_in_users = await self.db_manager.get_all_logged_in_users()
 
             if logged_in_users:
-                logger.info(f"Tìm thấy {len(logged_in_users)} người dùng đang đăng nhập. Tiến hành xóa cache.")
                 for user_id in logged_in_users:
-                    await self.cache_manager.clear_user_cache(user_id)
-                logger.info("Hoàn tất tác vụ tự động làm mới cache.")
-            else:
-                logger.info("Không có người dùng nào đang đăng nhập. Bỏ qua lần làm mới này.")
+                    await self.cache_manager.clear_user_cache(user_id, log_info=False)
 
     async def run(self) -> None:
         """Khởi chạy bot và quản lý vòng đời của các kết nối."""
@@ -179,12 +204,14 @@ Các lệnh có sẵn:
         await self.cache_manager.connect()
 
         auto_refresh_task = None
+        application = None
         try:
             # Tạo ứng dụng
             application = Application.builder().token(self.config.TELEGRAM_BOT_TOKEN).build()
 
             # Thiết lập handlers
             self.setup_handlers(application)
+            application.add_error_handler(self.global_error_handler)
 
             # Khởi chạy bot
             logger.info("Bot đang khởi động...")
@@ -205,16 +232,24 @@ Các lệnh có sẵn:
 
         except (KeyboardInterrupt, SystemExit):
             logger.info("Đang dừng bot...")
+        except Exception:
+            logger.exception("Bot crashed unexpectedly.")
+            raise
         finally:
             # Hủy tác vụ nền
             if auto_refresh_task:
                 auto_refresh_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await auto_refresh_task
 
             # Đảm bảo đóng các kết nối khi bot dừng
-            if application.updater and application.updater.running:
-                await application.updater.stop()
-            await application.stop()
-            await application.shutdown()
+            if application:
+                if application.updater and application.updater.running:
+                    await application.updater.stop()
+                if application.running:
+                    await application.stop()
+                with suppress(RuntimeError):
+                    await application.shutdown()
 
             await self.db_manager.close()
             await self.cache_manager.close()

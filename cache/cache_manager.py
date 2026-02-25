@@ -60,10 +60,10 @@ class CacheManager:
             r = self.get_redis_client()
             cached_data = await r.get(key)
             if cached_data:
-                logger.info(f"Cache HIT for key: {key}")
+                logger.debug(f"Cache HIT for key: {key}")
                 # Dữ liệu trả về là một dict chứa data và timestamp
                 return json.loads(cached_data)
-            logger.info(f"Cache MISS for key: {key}")
+            logger.debug(f"Cache MISS for key: {key}")
             return None
         except Exception as e:
             logger.error(f"Lỗi lấy cache cho key '{key}': {e}")
@@ -87,7 +87,7 @@ class CacheManager:
             }
             serialized_value = json.dumps(data_to_cache, ensure_ascii=False)
             await r.set(key, serialized_value, ex=ttl)
-            logger.info(f"Đã lưu cache cho key: {key} với TTL: {ttl} giây.")
+            logger.debug(f"Đã lưu cache cho key: {key} với TTL: {ttl} giây.")
         except Exception as e:
             logger.error(f"Lỗi lưu cache cho key '{key}': {e}")
 
@@ -101,14 +101,18 @@ class CacheManager:
         try:
             r = self.get_redis_client()
             await r.delete(key)
-            logger.info(f"Đã xóa cache cho key: {key}")
+            logger.debug(f"Đã xóa cache cho key: {key}")
         except Exception as e:
             logger.error(f"Lỗi xóa cache cho key '{key}': {e}")
 
-    async def clear_user_cache(self, telegram_user_id: int):
+    async def clear_user_cache(self, telegram_user_id: int, log_info: bool = True):
         """
         Xóa tất cả cache liên quan đến một người dùng.
         Hữu ích khi người dùng đăng xuất.
+
+        Args:
+            telegram_user_id: ID người dùng Telegram.
+            log_info: Nếu False sẽ không ghi log mức INFO khi xóa cache thành công.
         """
         try:
             r = self.get_redis_client()
@@ -119,6 +123,7 @@ class CacheManager:
             
             if keys_to_delete:
                 await r.delete(*keys_to_delete)
-                logger.info(f"Đã xóa {len(keys_to_delete)} cache keys cho người dùng {telegram_user_id}.")
+                if log_info:
+                    logger.info(f"Đã xóa {len(keys_to_delete)} cache keys cho người dùng {telegram_user_id}.")
         except Exception as e:
             logger.error(f"Lỗi xóa cache cho người dùng {telegram_user_id}: {e}")

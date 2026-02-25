@@ -584,25 +584,10 @@ class DiemDanhTatCaHandler:
             # Thoát
             context.user_data.pop("diemdanhtatca_input", None)
             context.user_data.pop("diemdanhtatca_campus", None)
-
-            # Hiển thị lại menu chọn campus
-            result = await self.handle_diem_danh_tat_ca_menu(user_id)
-            if result["success"]:
-                message = self.format_campus_menu_message()
-                keyboard_data = self.format_diem_danh_tat_ca_keyboard()
-                keyboard = []
-                for row in keyboard_data:
-                    keyboard.append([
-                        InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
-                        for btn in row
-                    ])
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
+            await query.edit_message_text(
+                text="❎ *Đã thoát lệnh.*\n\nDùng /diemdanhtatca để bắt đầu lại.",
+                parse_mode="Markdown"
+            )
             return
 
         elif callback_data == "num_tatca_delete":
