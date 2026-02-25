@@ -40,6 +40,7 @@ e-HUTECH Telegram Bot là công cụ hỗ trợ sinh viên Đại học Công ng
 | `/diem` | Điểm số | Xem điểm & xuất file Excel `.xlsx` |
 | `/hocphan` | Học phần | Tra cứu học phần, danh sách lớp, lịch sử điểm danh |
 | `/trogiup` | Trợ giúp | Hiển thị thông tin trợ giúp chi tiết |
+| `/chinhsach` | Chính sách | Xem chấp nhận hoặc từ chối chính sách bảo mật |
 | `/dangxuat` | Đăng xuất | Ngắt kết nối tài khoản |
 
 ## Cài đặt và Chạy
