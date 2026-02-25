@@ -99,7 +99,7 @@ class HutechBot:
             f"/diem để xem điểm của bạn.\n"
             f"/hocphan để xem thông tin học phần.\n"
             f"/trogiup để xem các lệnh có sẵn.\n"
-            f"/chinhsach để xem/chấp nhận chính sách bảo mật.\n"
+            f"/chinhsach để xem chính sách bảo mật.\n"
             f"/dangxuat để đăng xuất khỏi hệ thống.",
             reply_to_message_id=update.message.message_id
         )
@@ -119,7 +119,7 @@ Các lệnh có sẵn:
 /diem - Xem điểm
 /hocphan - Xem thông tin học phần
 /trogiup - Hiển thị trợ giúp
-/chinhsach - Xem/chấp nhận chính sách bảo mật
+/chinhsach - Xem chính sách bảo mật
 /dangxuat - Đăng xuất khỏi hệ thống
         """
         await update.message.reply_text(help_text, reply_to_message_id=update.message.message_id)
