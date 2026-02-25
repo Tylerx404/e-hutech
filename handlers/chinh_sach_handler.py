@@ -43,19 +43,23 @@ class ChinhSachHandler:
         """Nội dung chính sách bảo mật và điều khoản sử dụng."""
         return (
             "🔐 <b>Chính sách bảo mật & điều khoản sử dụng</b>\n\n"
-            "<blockquote>"
             "Khi sử dụng bot này, bạn xác nhận và đồng ý:\n"
-            "1. Bot có thể lưu trữ thông tin tài khoản để cung cấp tính năng.\n"
+            "<blockquote>"
+            "1. Bot sẽ lưu trữ thông tin tài khoản để cung cấp tính năng.\n"
             "2. Dữ liệu được lưu trên hệ thống máy chủ và có thể tồn tại rủi ro bảo mật ngoài ý muốn.\n"
             "3. Chủ bot không chịu trách nhiệm cho các thiệt hại phát sinh do rò rỉ dữ liệu, truy cập trái phép hoặc sự cố từ bên thứ ba.\n"
-            "4. Bạn tự chịu trách nhiệm với quyết định cung cấp thông tin tài khoản cho bot.\n"
-            "5. Nếu không đồng ý, hãy chọn Từ chối."
+            "4. Bạn tự chịu trách nhiệm với quyết định cung cấp thông tin tài khoản cho bot."
             "</blockquote>\n\n"
             "Nhấn nút bên dưới để tiếp tục."
         )
 
-    def get_policy_keyboard(self) -> InlineKeyboardMarkup:
-        """Tạo keyboard chấp nhận/từ chối chính sách."""
+    def get_policy_keyboard(self, has_consented: bool) -> InlineKeyboardMarkup:
+        """Tạo keyboard theo trạng thái chấp nhận chính sách."""
+        if has_consented:
+            return InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Từ chối", callback_data="consent_decline")],
+            ])
+
         return InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Chấp nhận", callback_data="consent_accept")],
             [InlineKeyboardButton("❌ Từ chối", callback_data="consent_decline")],
@@ -64,7 +68,9 @@ class ChinhSachHandler:
     async def send_policy_prompt(self, update: Update) -> None:
         """Hiển thị thông báo chính sách cùng menu chấp nhận/từ chối."""
         policy_message = self.get_policy_message()
-        reply_markup = self.get_policy_keyboard()
+        user_id = update.effective_user.id if update.effective_user else None
+        has_consented = await self.db_manager.has_accepted_policy(user_id) if user_id else False
+        reply_markup = self.get_policy_keyboard(has_consented)
 
         if update.message:
             await update.message.reply_text(policy_message, reply_markup=reply_markup, parse_mode="HTML")
