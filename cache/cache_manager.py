@@ -105,10 +105,14 @@ class CacheManager:
         except Exception as e:
             logger.error(f"Lỗi xóa cache cho key '{key}': {e}")
 
-    async def clear_user_cache(self, telegram_user_id: int):
+    async def clear_user_cache(self, telegram_user_id: int, log_info: bool = True):
         """
         Xóa tất cả cache liên quan đến một người dùng.
         Hữu ích khi người dùng đăng xuất.
+
+        Args:
+            telegram_user_id: ID người dùng Telegram.
+            log_info: Nếu False sẽ không ghi log mức INFO khi xóa cache thành công.
         """
         try:
             r = self.get_redis_client()
@@ -119,6 +123,7 @@ class CacheManager:
             
             if keys_to_delete:
                 await r.delete(*keys_to_delete)
-                logger.info(f"Đã xóa {len(keys_to_delete)} cache keys cho người dùng {telegram_user_id}.")
+                if log_info:
+                    logger.info(f"Đã xóa {len(keys_to_delete)} cache keys cho người dùng {telegram_user_id}.")
         except Exception as e:
             logger.error(f"Lỗi xóa cache cho người dùng {telegram_user_id}: {e}")

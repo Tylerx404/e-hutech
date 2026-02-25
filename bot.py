@@ -164,16 +164,11 @@ Các lệnh có sẵn:
         while True:
             await asyncio.sleep(600)  # Chờ 10 phút
 
-            logger.info("Bắt đầu tác vụ tự động làm mới cache...")
             logged_in_users = await self.db_manager.get_all_logged_in_users()
 
             if logged_in_users:
-                logger.info(f"Tìm thấy {len(logged_in_users)} người dùng đang đăng nhập. Tiến hành xóa cache.")
                 for user_id in logged_in_users:
-                    await self.cache_manager.clear_user_cache(user_id)
-                logger.info("Hoàn tất tác vụ tự động làm mới cache.")
-            else:
-                logger.info("Không có người dùng nào đang đăng nhập. Bỏ qua lần làm mới này.")
+                    await self.cache_manager.clear_user_cache(user_id, log_info=False)
 
     async def run(self) -> None:
         """Khởi chạy bot và quản lý vòng đời của các kết nối."""
