@@ -86,17 +86,6 @@ class HutechBot:
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /start"""
-        user_id = update.effective_user.id
-        consented = await self.chinh_sach_handler.has_user_consented(user_id)
-
-        if not consented:
-            await update.message.reply_text(
-                "Bạn cần chấp nhận chính sách bảo mật trước khi sử dụng các tính năng chính.",
-                reply_to_message_id=update.message.message_id
-            )
-            await self.chinh_sach_handler.send_policy_prompt(update)
-            return
-
         user = update.effective_user
         await update.message.reply_html(
             f"Chào {user.mention_html()}! Tôi là bot HUTECH.\n\n"
@@ -117,17 +106,6 @@ class HutechBot:
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý lệnh /help"""
-        user_id = update.effective_user.id
-        consented = await self.chinh_sach_handler.has_user_consented(user_id)
-
-        if not consented:
-            await update.message.reply_text(
-                "Bạn chưa chấp nhận chính sách. Vui lòng chọn Chấp nhận để tiếp tục sử dụng bot.",
-                reply_to_message_id=update.message.message_id
-            )
-            await self.chinh_sach_handler.send_policy_prompt(update)
-            return
-
         help_text = """
 Các lệnh có sẵn:
 
