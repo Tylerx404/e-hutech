@@ -545,25 +545,10 @@ class DiemDanhHandler:
             # Thoát
             context.user_data.pop("diemdanh_input", None)
             context.user_data.pop("diemdanh_campus", None)
-
-            # Hiển thị lại menu chọn campus
-            result = await self.handle_diem_danh_menu(user_id)
-            if result["success"]:
-                message = self.format_campus_menu_message()
-                keyboard_data = self.format_campus_keyboard()
-                keyboard = []
-                for row in keyboard_data:
-                    keyboard.append([
-                        InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
-                        for btn in row
-                    ])
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
+            await query.edit_message_text(
+                text="❎ *Đã thoát lệnh.*\n\nDùng /diemdanh để bắt đầu lại.",
+                parse_mode="Markdown"
+            )
             return
 
         elif callback_data == "num_delete":
