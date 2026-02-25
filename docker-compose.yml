@@ -41,7 +41,14 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-your_bot_token_here}
       - POSTGRES_URL=${POSTGRES_URL:-postgresql://user:password@postgres:5432/db_name}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/cache_name}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_JSON=${LOG_JSON:-true}
       - TZ=Asia/Ho_Chi_Minh
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     depends_on:
       postgres:
         condition: service_healthy

@@ -69,6 +69,8 @@ Mở file `.env` và điền các thông tin cần thiết:
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 POSTGRES_URL=postgresql://user:password@postgres:5432/db_name
 REDIS_URL=redis://redis:6379/cache_name
+LOG_LEVEL=INFO
+LOG_JSON=false
 ```
 
 > **Mẹo:** Lấy `TELEGRAM_BOT_TOKEN` từ [@BotFather](https://t.me/BotFather) trên Telegram.

@@ -235,7 +235,17 @@ class HocPhanHandler:
                         if isinstance(response_data.get("message"), str):
                             error_message = response_data["message"]
 
-                logger.warning(f"Invalid response data or API error: {response_data}")
+                error_flag = response_data.get("error") if isinstance(response_data, dict) else None
+                api_message = response_data.get("message") if isinstance(response_data, dict) else None
+                if isinstance(api_message, str):
+                    api_message = api_message[:200]
+                logger.warning(
+                    "Invalid response data or API error | user_id=%s key_lop_hoc_phan=%s error=%s message=%s",
+                    telegram_user_id,
+                    key_lop_hoc_phan,
+                    error_flag,
+                    api_message,
+                )
                 return {
                     "success": False,
                     "message": f"🚫 *Lỗi*\n\n{error_message}",

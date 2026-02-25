@@ -60,10 +60,10 @@ class CacheManager:
             r = self.get_redis_client()
             cached_data = await r.get(key)
             if cached_data:
-                logger.info(f"Cache HIT for key: {key}")
+                logger.debug(f"Cache HIT for key: {key}")
                 # Dữ liệu trả về là một dict chứa data và timestamp
                 return json.loads(cached_data)
-            logger.info(f"Cache MISS for key: {key}")
+            logger.debug(f"Cache MISS for key: {key}")
             return None
         except Exception as e:
             logger.error(f"Lỗi lấy cache cho key '{key}': {e}")
@@ -87,7 +87,7 @@ class CacheManager:
             }
             serialized_value = json.dumps(data_to_cache, ensure_ascii=False)
             await r.set(key, serialized_value, ex=ttl)
-            logger.info(f"Đã lưu cache cho key: {key} với TTL: {ttl} giây.")
+            logger.debug(f"Đã lưu cache cho key: {key} với TTL: {ttl} giây.")
         except Exception as e:
             logger.error(f"Lỗi lưu cache cho key '{key}': {e}")
 
@@ -101,7 +101,7 @@ class CacheManager:
         try:
             r = self.get_redis_client()
             await r.delete(key)
-            logger.info(f"Đã xóa cache cho key: {key}")
+            logger.debug(f"Đã xóa cache cho key: {key}")
         except Exception as e:
             logger.error(f"Lỗi xóa cache cho key '{key}': {e}")
 
