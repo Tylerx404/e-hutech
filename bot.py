@@ -12,6 +12,7 @@ from contextlib import suppress
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.error import NetworkError, TelegramError
 
 from config.config import Config
 from database.db_manager import DatabaseManager
@@ -175,6 +176,17 @@ Các lệnh có sẵn:
                 for user_id in logged_in_users:
                     await self.cache_manager.clear_user_cache(user_id, log_info=False)
 
+    def polling_error_callback(self, error: TelegramError) -> None:
+        """Xử lý lỗi polling để tránh dừng bot khi mạng chập chờn."""
+        if isinstance(error, NetworkError):
+            logger.warning("Polling network error, sẽ tự thử lại: %s", error)
+            return
+
+        logger.error(
+            "Polling error không phải network error.",
+            exc_info=(type(error), error, error.__traceback__),
+        )
+
     async def run(self) -> None:
         """Khởi chạy bot và quản lý vòng đời của các kết nối."""
         # Kết nối đến cơ sở dữ liệu và cache
@@ -185,7 +197,20 @@ Các lệnh có sẵn:
         application = None
         try:
             # Tạo ứng dụng
-            application = Application.builder().token(self.config.TELEGRAM_BOT_TOKEN).build()
+            application = (
+                Application.builder()
+                .token(self.config.TELEGRAM_BOT_TOKEN)
+                .connect_timeout(self.config.TELEGRAM_CONNECT_TIMEOUT)
+                .read_timeout(self.config.TELEGRAM_READ_TIMEOUT)
+                .write_timeout(self.config.TELEGRAM_WRITE_TIMEOUT)
+                .pool_timeout(self.config.TELEGRAM_POOL_TIMEOUT)
+                .connection_pool_size(self.config.TELEGRAM_CONNECTION_POOL_SIZE)
+                .get_updates_connect_timeout(self.config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT)
+                .get_updates_read_timeout(self.config.TELEGRAM_GET_UPDATES_READ_TIMEOUT)
+                .get_updates_write_timeout(self.config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT)
+                .get_updates_pool_timeout(self.config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT)
+                .build()
+            )
 
             # Thiết lập handlers
             self.setup_handlers(application)
@@ -199,14 +224,27 @@ Các lệnh có sẵn:
             async with application:
                 await application.initialize()
                 await application.start()
-                await application.updater.start_polling()
+                try:
+                    await application.updater.start_polling(
+                        poll_interval=self.config.TELEGRAM_POLL_INTERVAL,
+                        timeout=self.config.TELEGRAM_POLL_TIMEOUT,
+                        bootstrap_retries=self.config.TELEGRAM_BOOTSTRAP_RETRIES,
+                        error_callback=self.polling_error_callback,
+                    )
 
-                # Bắt đầu tác vụ nền
-                auto_refresh_task = asyncio.create_task(self.auto_refresh_cache_task())
+                    # Bắt đầu tác vụ nền
+                    auto_refresh_task = asyncio.create_task(self.auto_refresh_cache_task())
 
-                # Giữ bot chạy cho đến khi nhận được tín hiệu dừng (ví dụ: Ctrl+C)
-                while True:
-                    await asyncio.sleep(1)
+                    # Giữ bot chạy cho đến khi nhận được tín hiệu dừng (ví dụ: Ctrl+C)
+                    while True:
+                        await asyncio.sleep(1)
+                except Exception:
+                    # Dừng application trước khi thoát context manager để tránh RuntimeError.
+                    if application.updater and application.updater.running:
+                        await application.updater.stop()
+                    if application.running:
+                        await application.stop()
+                    raise
 
         except (KeyboardInterrupt, SystemExit):
             logger.info("Đang dừng bot...")
