@@ -8,11 +8,12 @@ Handler xử lý vị trí điểm danh (campus)
 import logging
 from typing import Dict, Any, Optional, List
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
 from telegram.error import BadRequest
 
 from config.config import Config
+from utils.button_style import make_inline_button
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ class ViTriHandler:
             # Thêm các nút chọn campus (tối đa 2 nút mỗi hàng)
             row = []
             for i, campus_name in enumerate(CAMPUS_LOCATIONS.keys()):
-                row.append(InlineKeyboardButton(campus_name, callback_data=f"vitri_select_{campus_name}"))
+                row.append(make_inline_button(campus_name, f"vitri_select_{campus_name}", tone=None, emoji="📍"))
                 if len(row) == 2 or i == len(CAMPUS_LOCATIONS) - 1:
                     keyboard.append(row)
                     row = []
@@ -96,7 +97,7 @@ class ViTriHandler:
             # Thêm nút xóa vị trí nếu có vị trí đã lưu
             if preferred_campus:
                 keyboard.append([
-                    InlineKeyboardButton("🗑️ Xóa vị trí đã lưu", callback_data="vitri_delete")
+                    make_inline_button("Xóa vị trí đã lưu", "vitri_delete", tone="danger")
                 ])
 
             return InlineKeyboardMarkup(keyboard)
