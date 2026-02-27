@@ -14,11 +14,12 @@ from icalendar import Calendar, Event
 import pytz
 import os
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
 from telegram.error import BadRequest
 
 from config.config import Config
+from utils.button_style import make_inline_button
 
 logger = logging.getLogger(__name__)
 
@@ -234,31 +235,37 @@ class TkbHandler:
             logger.error(f"Error getting token for user {telegram_user_id}: {e}")
             return None
 
-    def create_subject_selection_keyboard(self, subjects: List[Dict[str, Any]]) -> InlineKeyboardMarkup:
+    def create_subject_selection_keyboard(
+        self,
+        subjects: List[Dict[str, Any]],
+        selected_subjects: Optional[List[str]] = None,
+    ) -> InlineKeyboardMarkup:
         """
-        Tạo keyboard chọn môn học với checkbox.
+        Tạo keyboard chọn môn học bằng tone màu theo trạng thái chọn.
 
         Args:
             subjects: Danh sách môn học.
+            selected_subjects: Danh sách mã học phần đã chọn.
 
         Returns:
             InlineKeyboardMarkup với các nút chọn môn học.
         """
         keyboard = []
+        selected_subjects_set = set(selected_subjects or [])
 
         # Tạo nút cho từng môn học
         for subject in subjects:
             ma_hp = subject.get("ma_hp", "")
             ten_hp = subject.get("ten_hp", "")
-            # Format: [ ] Tên môn học (Mã HP)
-            button_text = f"[ ] {ten_hp} ({ma_hp})"
+            button_text = f"{ten_hp} ({ma_hp})"
             callback_data = f"tkb_subject_toggle_{ma_hp}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+            tone = "primary" if ma_hp in selected_subjects_set else None
+            keyboard.append([make_inline_button(button_text, callback_data, tone=tone)])
 
         # Thêm nút xác nhận và hủy
         keyboard.append([
-            InlineKeyboardButton("✅ Xác nhận", callback_data="tkb_subject_confirm"),
-            InlineKeyboardButton("❌ Hủy", callback_data="tkb_subject_cancel")
+            make_inline_button("Xác nhận", "tkb_subject_confirm", tone="success", emoji=None),
+            make_inline_button("Hủy", "tkb_subject_cancel", tone="danger", emoji=None)
         ])
 
         return InlineKeyboardMarkup(keyboard)
@@ -272,11 +279,11 @@ class TkbHandler:
         """
         keyboard = [
             [
-                InlineKeyboardButton("📅 Toàn bộ thời gian", callback_data="tkb_time_all"),
-                InlineKeyboardButton("📆 Từ tuần hiện tại", callback_data="tkb_time_current")
+                make_inline_button("Toàn bộ thời gian", "tkb_time_all", tone=None, emoji="📅"),
+                make_inline_button("Từ tuần hiện tại", "tkb_time_current", tone=None, emoji="📆")
             ],
             [
-                InlineKeyboardButton("⬅️ Quay lại", callback_data="tkb_time_back")
+                make_inline_button("Quay lại", "tkb_time_back", tone="neutral", emoji=None)
             ]
         ]
 
@@ -699,12 +706,12 @@ class TkbHandler:
             # Tạo keyboard cho các nút điều hướng
             keyboard = [
                 [
-                    InlineKeyboardButton("⬅️ Tuần trước", callback_data=f"tkb_{week_offset-1}"),
-                    InlineKeyboardButton("Tuần hiện tại", callback_data=f"tkb_0"),
-                    InlineKeyboardButton("Tuần tới ➡️", callback_data=f"tkb_{week_offset+1}")
+                    make_inline_button("Tuần trước", f"tkb_{week_offset-1}", tone=None, emoji=None),
+                    make_inline_button("Tuần hiện tại", "tkb_0", tone=None, emoji=None),
+                    make_inline_button("Tuần tới", f"tkb_{week_offset+1}", tone=None, emoji=None)
                 ],
                 [
-                    InlineKeyboardButton("🗓️ Xuất ra iCalendar (.ics)", callback_data=f"tkb_export_ics_{week_offset}")
+                    make_inline_button("Xuất iCalendar (.ics)", f"tkb_export_ics_{week_offset}", tone="warning", emoji="🗓️")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -795,12 +802,12 @@ class TkbHandler:
                 # Tạo keyboard cho các nút điều hướng
                 keyboard = [
                     [
-                        InlineKeyboardButton("⬅️ Tuần trước", callback_data=f"tkb_{week_offset-1}"),
-                        InlineKeyboardButton("Tuần hiện tại", callback_data=f"tkb_0"),
-                        InlineKeyboardButton("Tuần tới ➡️", callback_data=f"tkb_{week_offset+1}")
+                        make_inline_button("Tuần trước", f"tkb_{week_offset-1}", tone=None, emoji=None),
+                        make_inline_button("Tuần hiện tại", "tkb_0", tone=None, emoji=None),
+                        make_inline_button("Tuần tới", f"tkb_{week_offset+1}", tone=None, emoji=None)
                     ],
                     [
-                        InlineKeyboardButton("🗓️ Xuất ra iCalendar (.ics)", callback_data=f"tkb_export_ics_{week_offset}")
+                        make_inline_button("Xuất iCalendar (.ics)", f"tkb_export_ics_{week_offset}", tone="warning", emoji="🗓️")
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -877,23 +884,7 @@ class TkbHandler:
             # Cập nhật context
             context.user_data["selected_subjects"] = selected_subjects
 
-            # Tạo lại keyboard với trạng thái checkbox mới
-            keyboard = []
-            for subject in subjects:
-                subj_ma_hp = subject.get("ma_hp", "")
-                subj_ten_hp = subject.get("ten_hp", "")
-
-                # Checkbox state
-                checkbox = "[x]" if subj_ma_hp in selected_subjects else "[ ]"
-                button_text = f"{checkbox} {subj_ten_hp} ({subj_ma_hp})"
-                callback_data_btn = f"tkb_subject_toggle_{subj_ma_hp}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data_btn)])
-
-            # Nút xác nhận và hủy
-            keyboard.append([
-                InlineKeyboardButton("✅ Xác nhận", callback_data="tkb_subject_confirm"),
-                InlineKeyboardButton("❌ Hủy", callback_data="tkb_subject_cancel")
-            ])
+            keyboard = self.create_subject_selection_keyboard(subjects, selected_subjects)
 
             # Cập nhật tin nhắn
             message = f"📚 *Chọn môn học để xuất*\n\n" \
@@ -903,7 +894,7 @@ class TkbHandler:
 
             await query.edit_message_text(
                 text=message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
+                reply_markup=keyboard,
                 parse_mode="Markdown"
             )
 
@@ -923,7 +914,7 @@ class TkbHandler:
         if callback_data == "tkb_time_back":
             # Quay lại menu chọn môn học
             subjects = context.user_data.get("tkb_subjects", [])
-            keyboard = self.create_subject_selection_keyboard(subjects)
+            keyboard = self.create_subject_selection_keyboard(subjects, selected_subjects)
 
             message = f"📚 *Chọn môn học để xuất*\n\n" \
                       f"Tổng số môn học: {len(subjects)}\n" \
