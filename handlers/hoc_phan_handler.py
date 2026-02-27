@@ -16,10 +16,11 @@ from datetime import datetime, timedelta
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
 
 from config.config import Config
+from utils.button_style import make_inline_button
 
 logger = logging.getLogger(__name__)
 
@@ -1131,7 +1132,7 @@ class HocPhanHandler:
             # Thêm các nút chọn năm học - học kỳ (tối đa 3 nút mỗi hàng)
             row = []
             for i, nam_hoc_hoc_ky in enumerate(nam_hoc_hoc_ky_list):
-                row.append(InlineKeyboardButton(nam_hoc_hoc_ky["name"], callback_data=f"namhoc_{nam_hoc_hoc_ky['key']}"))
+                row.append(make_inline_button(nam_hoc_hoc_ky["name"], f"namhoc_{nam_hoc_hoc_ky['key']}", tone=None))
                 if len(row) == 3 or i == len(nam_hoc_hoc_ky_list) - 1:
                     keyboard.append(row)
                     row = []
@@ -1197,13 +1198,13 @@ class HocPhanHandler:
                         # Thêm các nút chọn học phần (tối đa 2 nút mỗi hàng)
                         row = []
                         for i, hoc_phan in enumerate(hoc_phan_list):
-                            row.append(InlineKeyboardButton(hoc_phan["name"], callback_data=f"hocphan_{hoc_phan['key']}"))
+                            row.append(make_inline_button(hoc_phan["name"], f"hocphan_{hoc_phan['key']}", tone=None))
                             if len(row) == 2 or i == len(hoc_phan_list) - 1:
                                 keyboard.append(row)
                                 row = []
 
                         # Thêm nút quay lại
-                        keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")])
+                        keyboard.append([make_inline_button("Quay lại", "hocphan_back", tone="neutral", emoji=None)])
 
                         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1215,7 +1216,7 @@ class HocPhanHandler:
                     else:
                         # Thêm menu quay lại khi không tìm thấy học phần
                         keyboard = [
-                            [InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")]
+                            [make_inline_button("Quay lại", "hocphan_back", tone="neutral", emoji=None)]
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
                         await query.edit_message_text(
@@ -1244,7 +1245,7 @@ class HocPhanHandler:
                     # Thêm các nút chọn năm học - học kỳ (tối đa 3 nút mỗi hàng)
                     row = []
                     for i, nam_hoc_hoc_ky in enumerate(nam_hoc_hoc_ky_list):
-                        row.append(InlineKeyboardButton(nam_hoc_hoc_ky["name"], callback_data=f"namhoc_{nam_hoc_hoc_ky['key']}"))
+                        row.append(make_inline_button(nam_hoc_hoc_ky["name"], f"namhoc_{nam_hoc_hoc_ky['key']}", tone=None))
                         if len(row) == 3 or i == len(nam_hoc_hoc_ky_list) - 1:
                             keyboard.append(row)
                             row = []
@@ -1304,11 +1305,11 @@ class HocPhanHandler:
                         # Tạo keyboard cho các chức năng
                         keyboard = [
                             [
-                                InlineKeyboardButton("📋 Danh sách sinh viên", callback_data=f"danhsach_{key_lop_hoc_phan}"),
-                                InlineKeyboardButton("📝 Điểm danh", callback_data=f"diemdanh_lop_hoc_phan_{key_lop_hoc_phan}")
+                                make_inline_button("Danh sách sinh viên", f"danhsach_{key_lop_hoc_phan}", tone="primary", emoji="📋"),
+                                make_inline_button("Điểm danh", f"diemdanh_lop_hoc_phan_{key_lop_hoc_phan}", tone="success", emoji="📝")
                             ],
                             [
-                                InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")
+                                make_inline_button("Quay lại", "hocphan_back", tone="neutral", emoji=None)
                             ]
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1393,11 +1394,11 @@ class HocPhanHandler:
                             # Tạo keyboard cho các chức năng
                             keyboard = [
                                 [
-                                    InlineKeyboardButton("📋 Danh sách sinh viên", callback_data=f"danhsach_{key_lop_hoc_phan}"),
-                                    InlineKeyboardButton("📝 Điểm danh", callback_data=f"diemdanh_lop_hoc_phan_{key_lop_hoc_phan}")
+                                    make_inline_button("Danh sách sinh viên", f"danhsach_{key_lop_hoc_phan}", tone="primary", emoji="📋"),
+                                    make_inline_button("Điểm danh", f"diemdanh_lop_hoc_phan_{key_lop_hoc_phan}", tone="success", emoji="📝")
                                 ],
                                 [
-                                    InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")
+                                    make_inline_button("Quay lại", "hocphan_back", tone="neutral", emoji=None)
                                 ]
                             ]
                             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1435,7 +1436,7 @@ class HocPhanHandler:
                 # Tạo keyboard cho các chức năng
                 keyboard = [
                     [
-                        InlineKeyboardButton("⬅️ Quay lại", callback_data="hocphan_back")
+                        make_inline_button("Quay lại", "hocphan_back", tone="neutral", emoji=None)
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)

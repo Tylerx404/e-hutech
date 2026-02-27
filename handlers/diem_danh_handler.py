@@ -10,10 +10,11 @@ import logging
 import aiohttp
 from typing import Dict, Any, Optional, List
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
 from config.config import Config
+from utils.button_style import make_inline_button
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,8 @@ class DiemDanhHandler:
             for i, campus_name in enumerate(CAMPUS_LOCATIONS.keys()):
                 row.append({
                     "text": campus_name,
-                    "callback_data": f"diemdanh_campus_{campus_name}"
+                    "callback_data": f"diemdanh_campus_{campus_name}",
+                    "emoji": "📍",
                 })
                 if len(row) == 2 or i == len(CAMPUS_LOCATIONS) - 1:
                     keyboard.append(row)
@@ -376,9 +378,9 @@ class DiemDanhHandler:
             
             # Hàng 4: Thoát 0 Xoá
             keyboard.append([
-                {"text": "Thoát", "callback_data": "num_exit"},
+                {"text": "Thoát", "callback_data": "num_exit", "tone": "danger"},
                 {"text": "0", "callback_data": "num_0"},
-                {"text": "Xoá", "callback_data": "num_delete"}
+                {"text": "Xoá", "callback_data": "num_delete", "tone": "warning"}
             ])
             
             return keyboard
@@ -453,7 +455,12 @@ class DiemDanhHandler:
             keyboard = []
             for row in keyboard_data:
                 keyboard.append([
-                    InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                    make_inline_button(
+                        btn["text"],
+                        btn["callback_data"],
+                        tone=btn.get("tone"),
+                        emoji=btn.get("emoji"),
+                    )
                     for btn in row
                 ])
 
@@ -478,7 +485,12 @@ class DiemDanhHandler:
                 keyboard = []
                 for row in keyboard_data:
                     keyboard.append([
-                        InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                        make_inline_button(
+                            btn["text"],
+                            btn["callback_data"],
+                            tone=btn.get("tone"),
+                            emoji=btn.get("emoji"),
+                        )
                         for btn in row
                     ])
 
@@ -516,7 +528,12 @@ class DiemDanhHandler:
             keyboard = []
             for row in keyboard_data:
                 keyboard.append([
-                    InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                    make_inline_button(
+                        btn["text"],
+                        btn["callback_data"],
+                        tone=btn.get("tone"),
+                        emoji=btn.get("emoji"),
+                    )
                     for btn in row
                 ])
 
@@ -570,7 +587,12 @@ class DiemDanhHandler:
         keyboard = []
         for row in keyboard_data:
             keyboard.append([
-                InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"])
+                make_inline_button(
+                    btn["text"],
+                    btn["callback_data"],
+                    tone=btn.get("tone"),
+                    emoji=btn.get("emoji"),
+                )
                 for btn in row
             ])
 

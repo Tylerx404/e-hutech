@@ -6,8 +6,12 @@ File cấu hình cho bot Telegram HUTECH
 """
 
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
 
 class Config:
     def __init__(self):
@@ -49,9 +53,73 @@ class Config:
 
         # Cấu hình Redis
         self.REDIS_URL = os.getenv("REDIS_URL", "")
+
+        # Cấu hình network polling Telegram
+        self.TELEGRAM_CONNECT_TIMEOUT = self._env_float("TELEGRAM_CONNECT_TIMEOUT", 10.0, min_value=0.0)
+        self.TELEGRAM_READ_TIMEOUT = self._env_float("TELEGRAM_READ_TIMEOUT", 20.0, min_value=0.0)
+        self.TELEGRAM_WRITE_TIMEOUT = self._env_float("TELEGRAM_WRITE_TIMEOUT", 20.0, min_value=0.0)
+        self.TELEGRAM_POOL_TIMEOUT = self._env_float("TELEGRAM_POOL_TIMEOUT", 5.0, min_value=0.0)
+        self.TELEGRAM_CONNECTION_POOL_SIZE = self._env_int("TELEGRAM_CONNECTION_POOL_SIZE", 16, min_value=1)
+
+        self.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = self._env_float(
+            "TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT",
+            self.TELEGRAM_CONNECT_TIMEOUT,
+            min_value=0.0,
+        )
+        self.TELEGRAM_GET_UPDATES_READ_TIMEOUT = self._env_float(
+            "TELEGRAM_GET_UPDATES_READ_TIMEOUT",
+            35.0,
+            min_value=0.0,
+        )
+        self.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = self._env_float(
+            "TELEGRAM_GET_UPDATES_WRITE_TIMEOUT",
+            self.TELEGRAM_WRITE_TIMEOUT,
+            min_value=0.0,
+        )
+        self.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = self._env_float(
+            "TELEGRAM_GET_UPDATES_POOL_TIMEOUT",
+            self.TELEGRAM_POOL_TIMEOUT,
+            min_value=0.0,
+        )
+
+        self.TELEGRAM_POLL_TIMEOUT = self._env_int("TELEGRAM_POLL_TIMEOUT", 10, min_value=1)
+        self.TELEGRAM_POLL_INTERVAL = self._env_float("TELEGRAM_POLL_INTERVAL", 0.5, min_value=0.0)
+        self.TELEGRAM_BOOTSTRAP_RETRIES = self._env_int("TELEGRAM_BOOTSTRAP_RETRIES", -1, min_value=-1)
         
         # Kiểm tra các biến môi trường cần thiết
         self._validate_config()
+
+    @staticmethod
+    def _env_float(name: str, default: float, min_value: float | None = None) -> float:
+        raw_value = os.getenv(name)
+        if raw_value is None or raw_value == "":
+            return default
+        try:
+            value = float(raw_value)
+        except ValueError:
+            logger.warning("Giá trị %s=%r không hợp lệ, dùng mặc định %s", name, raw_value, default)
+            return default
+
+        if min_value is not None and value < min_value:
+            logger.warning("Giá trị %s=%s nhỏ hơn %s, dùng mặc định %s", name, value, min_value, default)
+            return default
+        return value
+
+    @staticmethod
+    def _env_int(name: str, default: int, min_value: int | None = None) -> int:
+        raw_value = os.getenv(name)
+        if raw_value is None or raw_value == "":
+            return default
+        try:
+            value = int(raw_value)
+        except ValueError:
+            logger.warning("Giá trị %s=%r không hợp lệ, dùng mặc định %s", name, raw_value, default)
+            return default
+
+        if min_value is not None and value < min_value:
+            logger.warning("Giá trị %s=%s nhỏ hơn %s, dùng mặc định %s", name, value, min_value, default)
+            return default
+        return value
     
     def _validate_config(self):
         """Kiểm tra các cấu hình bắt buộc"""

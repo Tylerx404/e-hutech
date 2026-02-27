@@ -5,7 +5,7 @@
 Handler xử lý chính sách bảo mật và trạng thái chấp nhận của người dùng
 """
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup
 from telegram.error import BadRequest
 from telegram.ext import (
     ContextTypes,
@@ -16,6 +16,7 @@ from telegram.ext import (
     ApplicationHandlerStop,
     filters,
 )
+from utils.button_style import make_inline_button
 
 
 ALLOWED_COMMANDS_WITHOUT_CONSENT = {"start", "trogiup", "chinhsach"}
@@ -57,12 +58,12 @@ class ChinhSachHandler:
         """Tạo keyboard theo trạng thái chấp nhận chính sách."""
         if has_consented:
             return InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ Từ chối", callback_data="consent_decline")],
+                [make_inline_button("Từ chối", "consent_decline", tone="danger")],
             ])
 
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Chấp nhận", callback_data="consent_accept")],
-            [InlineKeyboardButton("❌ Từ chối", callback_data="consent_decline")],
+            [make_inline_button("Chấp nhận", "consent_accept", tone="success")],
+            [make_inline_button("Từ chối", "consent_decline", tone="danger")],
         ])
 
     async def send_policy_prompt(self, update: Update) -> None:
