@@ -16,10 +16,11 @@ from datetime import datetime, timedelta
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
 
 from config.config import Config
+from utils.button_style import make_inline_button
 
 logger = logging.getLogger(__name__)
 
@@ -557,6 +558,20 @@ class DiemHandler:
         except Exception as e:
             logger.error(f"Error getting học kỳ list: {e}")
             return []
+
+    def create_main_diem_keyboard(self, diem_data: Dict[str, Any]) -> InlineKeyboardMarkup:
+        """
+        Tạo menu điểm chính theo cùng một layout cho mọi luồng.
+        """
+        hocky_list = self.get_hocky_list(diem_data)
+        keyboard = []
+
+        # Giữ layout mỗi nút một hàng như menu /diem ban đầu
+        for hocky in hocky_list:
+            keyboard.append([make_inline_button(hocky["name"], f"diem_{hocky['key']}", tone=None)])
+
+        keyboard.append([make_inline_button("Xuất Excel toàn bộ", "diem_export_all", tone="warning", emoji="📄")])
+        return InlineKeyboardMarkup(keyboard)
     
     def get_older_hocky_list(self, diem_data: Dict[str, Any]) -> List[Dict[str, str]]:
         """
@@ -752,19 +767,7 @@ class DiemHandler:
         if result["success"]:
             # Định dạng dữ liệu điểm thành menu
             message = self.format_diem_menu_message(result["data"])
-
-            # Tạo keyboard cho các nút chọn học kỳ
-            hocky_list = self.get_hocky_list(result["data"])
-            keyboard = []
-
-            # Thêm các nút chọn học kỳ (mỗi nút một hàng)
-            for hocky in hocky_list:
-                keyboard.append([InlineKeyboardButton(hocky["name"], callback_data=f"diem_{hocky['key']}")])
-
-            # Thêm nút xuất Excel
-            keyboard.append([InlineKeyboardButton("📄 Xuất Excel toàn bộ", callback_data="diem_export_all")])
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = self.create_main_diem_keyboard(result["data"])
 
             await update.message.reply_text(
                 message,
@@ -804,10 +807,10 @@ class DiemHandler:
                         # Tạo keyboard cho các nút chọn học kỳ cũ
                         keyboard = []
                         for hocky in older_hocky_list:
-                            keyboard.append([InlineKeyboardButton(hocky["name"], callback_data=f"diem_{hocky['key']}")])
+                            keyboard.append([make_inline_button(hocky["name"], f"diem_{hocky['key']}", tone=None)])
 
                         # Thêm nút quay lại
-                        keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="diem_back")])
+                        keyboard.append([make_inline_button("Quay lại", "diem_back", tone="neutral", emoji=None)])
 
                         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -827,19 +830,7 @@ class DiemHandler:
                 if result["success"]:
                     # Định dạng dữ liệu điểm thành menu
                     message = self.format_diem_menu_message(result["data"])
-
-                    # Tạo keyboard cho các nút chọn học kỳ
-                    hocky_list = self.get_hocky_list(result["data"])
-                    keyboard = []
-
-                    # Thêm các nút chọn học kỳ (mỗi nút một hàng)
-                    for hocky in hocky_list:
-                        keyboard.append([InlineKeyboardButton(hocky["name"], callback_data=f"diem_{hocky['key']}")])
-
-                    # Thêm nút xuất Excel
-                    keyboard.append([InlineKeyboardButton("📄 Xuất Excel toàn bộ", callback_data="diem_export_all")])
-
-                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    reply_markup = self.create_main_diem_keyboard(result["data"])
 
                     await query.edit_message_text(
                         text=message,
@@ -892,16 +883,7 @@ class DiemHandler:
                         result = await self.handle_diem(user_id)
                         if result["success"]:
                             message = self.format_diem_menu_message(result["data"])
-                            hocky_list = self.get_hocky_list(result["data"])
-                            keyboard = []
-                            row = []
-                            for i, hocky in enumerate(hocky_list):
-                                row.append(InlineKeyboardButton(hocky["name"], callback_data=f"diem_{hocky['key']}"))
-                                if len(row) == 3 or i == len(hocky_list) - 1:
-                                    keyboard.append(row)
-                                    row = []
-                            keyboard.append([InlineKeyboardButton("📄 Xuất Excel toàn bộ", callback_data="diem_export_all")])
-                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            reply_markup = self.create_main_diem_keyboard(result["data"])
                             await query.message.reply_text(
                                 message,
                                 reply_markup=reply_markup,
@@ -924,8 +906,8 @@ class DiemHandler:
                     # Tạo keyboard cho các nút điều hướng
                     keyboard = [
                         [
-                            InlineKeyboardButton("📄 Xuất Excel", callback_data=f"diem_export_{hocky_key}"),
-                            InlineKeyboardButton("⬅️ Quay lại", callback_data="diem_back")
+                            make_inline_button("Xuất Excel", f"diem_export_{hocky_key}", tone="warning", emoji="📄"),
+                            make_inline_button("Quay lại", "diem_back", tone="neutral", emoji=None)
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
