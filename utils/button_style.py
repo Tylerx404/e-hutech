@@ -21,17 +21,19 @@ TONE_TO_STYLE = {
 def make_inline_button(
     label: str,
     callback_data: str,
-    tone: str = "primary",
+    tone: Optional[str] = "primary",
     emoji: Optional[str] = None,
     icon_custom_emoji_id: Optional[str] = None,
 ) -> InlineKeyboardButton:
     """
     Tạo InlineKeyboardButton với style Bot API 9.4.
     """
-    style = TONE_TO_STYLE.get(tone, "primary")
+    style = TONE_TO_STYLE.get(tone) if tone else None
     text = f"{emoji} {label}" if emoji else label
 
-    api_kwargs = {"style": style}
+    api_kwargs = {}
+    if style:
+        api_kwargs["style"] = style
     if icon_custom_emoji_id:
         api_kwargs["icon_custom_emoji_id"] = icon_custom_emoji_id
 
