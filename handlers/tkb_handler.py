@@ -677,6 +677,32 @@ class TkbHandler:
             logger.error(f"Error creating ICS file for user {telegram_user_id}: {e}")
             return None
 
+    async def _safe_edit_message_text(
+        self,
+        query,
+        *,
+        text: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        parse_mode: Optional[str] = None
+    ) -> bool:
+        """Edit callback message và bỏ qua lỗi khi nội dung không thay đổi."""
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                logger.debug(
+                    "Skip TKB message edit because content is unchanged | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                return False
+            raise
+
     # ==================== Command Methods ====================
 
     async def tkb_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -774,7 +800,8 @@ class TkbHandler:
                           f"Đã chọn: 0 môn\n\n" \
                           f"Vui lòng chọn các môn học bên dưới:"
 
-                await query.edit_message_text(
+                await self._safe_edit_message_text(
+                    query,
                     text=message,
                     reply_markup=keyboard,
                     parse_mode="Markdown"
@@ -813,13 +840,14 @@ class TkbHandler:
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
                 # Cập nhật tin nhắn
-                await query.edit_message_text(
+                await self._safe_edit_message_text(
+                    query,
                     text=message,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
             else:
-                await query.edit_message_text(result['message'])
+                await self._safe_edit_message_text(query, text=result['message'])
 
     async def _handle_tkb_subject_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ menu chọn môn học"""
@@ -852,7 +880,8 @@ class TkbHandler:
             # Hiển thị menu chọn thời gian
             time_keyboard = self.create_time_range_keyboard()
 
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=message,
                 reply_markup=time_keyboard,
                 parse_mode="Markdown"
@@ -867,7 +896,11 @@ class TkbHandler:
             context.user_data.pop("tkb_subjects_dict", None)
             context.user_data.pop("tkb_week_offset", None)
 
-            await query.edit_message_text("❌ *Đã hủy xuất file.*", parse_mode="Markdown")
+            await self._safe_edit_message_text(
+                query,
+                text="❌ *Đã hủy xuất file.*",
+                parse_mode="Markdown"
+            )
             return
 
         # Xử lý toggle môn học
@@ -892,7 +925,8 @@ class TkbHandler:
                       f"Đã chọn: {len(selected_subjects)} môn\n\n" \
                       f"Vui lòng chọn các môn học bên dưới:"
 
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=message,
                 reply_markup=keyboard,
                 parse_mode="Markdown"
@@ -921,7 +955,8 @@ class TkbHandler:
                       f"Đã chọn: {len(selected_subjects)} môn\n\n" \
                       f"Vui lòng chọn các môn học bên dưới:"
 
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=message,
                 reply_markup=keyboard,
                 parse_mode="Markdown"
