@@ -62,8 +62,10 @@ class ChinhSachHandler:
             ])
 
         return InlineKeyboardMarkup([
-            [make_inline_button("Chấp nhận", "consent_accept", tone="success")],
-            [make_inline_button("Từ chối", "consent_decline", tone="danger")],
+            [
+                make_inline_button("Chấp nhận", "consent_accept", tone="success"),
+                make_inline_button("Từ chối", "consent_decline", tone="danger"),
+            ],
         ])
 
     async def send_policy_prompt(self, update: Update) -> None:
