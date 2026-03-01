@@ -8,11 +8,12 @@ File chính để khởi chạy bot
 
 import logging
 import asyncio
+import hashlib
 from contextlib import suppress
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from telegram.error import NetworkError, TelegramError
+from telegram.error import Conflict, NetworkError, TelegramError
 
 from config.config import Config
 from database.db_manager import DatabaseManager
@@ -182,16 +183,41 @@ Các lệnh có sẵn:
             logger.warning("Polling network error, sẽ tự thử lại: %s", error)
             return
 
+        if isinstance(error, Conflict):
+            logger.warning(
+                "Polling conflict: có instance khác đang getUpdates với cùng bot token. "
+                "Vui lòng đảm bảo chỉ chạy 1 instance bot."
+            )
+            return
+
         logger.error(
             "Polling error không phải network error.",
             exc_info=(type(error), error, error.__traceback__),
         )
+
+    @staticmethod
+    def _build_instance_lock_key(bot_token: str) -> int:
+        """
+        Sinh lock key ổn định theo bot token để tránh đụng lock giữa nhiều bot dùng chung DB.
+        """
+        digest = hashlib.blake2b(bot_token.encode("utf-8"), digest_size=8).digest()
+        return int.from_bytes(digest, byteorder="big", signed=True)
 
     async def run(self) -> None:
         """Khởi chạy bot và quản lý vòng đời của các kết nối."""
         # Kết nối đến cơ sở dữ liệu và cache
         await self.db_manager.connect()
         await self.cache_manager.connect()
+
+        lock_key = self._build_instance_lock_key(self.config.TELEGRAM_BOT_TOKEN)
+        acquired = await self.db_manager.acquire_bot_instance_lock(lock_key)
+        if not acquired:
+            logger.error(
+                "Phát hiện instance bot khác đang chạy (lock key=%s). "
+                "Tiến trình hiện tại sẽ thoát để tránh xung đột getUpdates.",
+                lock_key,
+            )
+            return
 
         auto_refresh_task = None
         application = None
