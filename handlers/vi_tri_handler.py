@@ -31,6 +31,54 @@ class ViTriHandler:
         self.db_manager = db_manager
         self.config = Config()
 
+    async def _safe_answer_callback(
+        self,
+        query,
+        *,
+        text: Optional[str] = None,
+        show_alert: bool = False
+    ) -> bool:
+        """Answer callback query và bỏ qua lỗi hết hạn query."""
+        try:
+            await query.answer(text=text, show_alert=show_alert)
+            return True
+        except BadRequest as e:
+            error_msg = str(e)
+            if "Query is too old" in error_msg or "query id is invalid" in error_msg:
+                logger.debug(
+                    "Skip callback answer because query expired | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                return False
+            raise
+
+    async def _safe_edit_message_text(
+        self,
+        query,
+        *,
+        text: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        parse_mode: Optional[str] = None
+    ) -> bool:
+        """Edit callback message và bỏ qua lỗi khi nội dung không thay đổi."""
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                logger.debug(
+                    "Skip vị trí message edit because content is unchanged | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                return False
+            raise
+
     async def get_user_preferred_campus(self, telegram_user_id: int) -> Optional[str]:
         """Lấy campus ưu tiên của người dùng từ DB."""
         return await self.db_manager.get_user_preferred_campus(telegram_user_id)
@@ -145,6 +193,7 @@ class ViTriHandler:
 
         # Lấy callback_data
         callback_data = query.data
+        await self._safe_answer_callback(query)
 
         if callback_data == "vitri_delete":
             # Xóa vị trí đã lưu
@@ -157,17 +206,12 @@ class ViTriHandler:
                 message = "❌ *Lỗi*\n\nKhông thể xóa vị trí. Vui lòng thử lại."
                 reply_markup = InlineKeyboardMarkup([])
 
-            try:
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-            except BadRequest as e:
-                if "Message is not modified" in str(e):
-                    await query.answer("Vị trí đã được xóa.")
-                else:
-                    raise
+            await self._safe_edit_message_text(
+                query,
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
 
         elif callback_data.startswith("vitri_select_"):
             # Chọn campus mới
@@ -182,17 +226,12 @@ class ViTriHandler:
                 message = "❌ *Lỗi*\n\nKhông thể lưu vị trí. Vui lòng thử lại."
                 reply_markup = InlineKeyboardMarkup([])
 
-            try:
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-            except BadRequest as e:
-                if "Message is not modified" in str(e):
-                    await query.answer(f"Đã chọn: {campus_name}")
-                else:
-                    raise
+            await self._safe_edit_message_text(
+                query,
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
 
     def register_commands(self, application: Application) -> None:
         """Đăng ký command handlers với Application"""
