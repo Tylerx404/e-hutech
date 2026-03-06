@@ -563,6 +563,58 @@ class HocPhanHandler:
         except Exception as e:
             logger.error(f"Error getting token for user {telegram_user_id}: {e}")
             return None
+
+    def _format_hoc_ky_label(self, hoc_ky: Any) -> str:
+        """
+        Chuẩn hóa nhãn hiển thị học kỳ cho tin nhắn theo quy ước backend.
+
+        Args:
+            hoc_ky: Mã học kỳ backend trả về
+
+        Returns:
+            Nhãn học kỳ rút gọn để hiển thị trong tin nhắn
+        """
+        hoc_ky_str = str(hoc_ky).strip()
+
+        if not hoc_ky_str or hoc_ky_str == "N/A":
+            return "N/A"
+
+        normalized_hoc_ky = hoc_ky_str.lstrip("0") or hoc_ky_str
+        hoc_ky_mapping = {
+            "1": "HK1",
+            "2": "HK phụ HK1",
+            "3": "HK2",
+            "4": "HK phụ HK2",
+            "5": "HK3",
+        }
+
+        return hoc_ky_mapping.get(normalized_hoc_ky, hoc_ky_str)
+
+    def _format_hoc_ky_excel_label(self, hoc_ky: Any) -> str:
+        """
+        Chuẩn hóa nhãn học kỳ cho file Excel danh sách sinh viên.
+
+        Args:
+            hoc_ky: Mã học kỳ backend trả về
+
+        Returns:
+            Nhãn học kỳ gọn cho file Excel
+        """
+        hoc_ky_str = str(hoc_ky).strip()
+
+        if not hoc_ky_str or hoc_ky_str == "N/A":
+            return "N/A"
+
+        normalized_hoc_ky = hoc_ky_str.lstrip("0") or hoc_ky_str
+        hoc_ky_mapping = {
+            "1": "1",
+            "2": "phụ HK1",
+            "3": "2",
+            "4": "phụ HK2",
+            "5": "3",
+        }
+
+        return hoc_ky_mapping.get(normalized_hoc_ky, hoc_ky_str)
     
     def _process_nam_hoc_hoc_ky_data(self, nam_hoc_hoc_ky_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -782,10 +834,11 @@ class HocPhanHandler:
                 hoc_ky = thong_tin.get("hoc_ky", "N/A")
                 nhom_hoc = thong_tin.get("nhom_hoc", "N/A")
                 so_tc = thong_tin.get("so_tc", "N/A")
+                hoc_ky_label = self._format_hoc_ky_label(hoc_ky)
                 
                 message += f"*{i+1}. {ten_mon_hoc}*\n"
                 message += f"   - *Mã HP:* `{ma_mon_hoc}`\n"
-                message += f"   - *Học kỳ:* `{nam_hoc} - HK{hoc_ky}`\n"
+                message += f"   - *Học kỳ:* `{nam_hoc} - {hoc_ky_label}`\n"
                 message += f"   - *Nhóm:* `{nhom_hoc}` | *Số TC:* `{so_tc}`\n\n"
             
             if timestamp_str:
@@ -822,11 +875,12 @@ class HocPhanHandler:
             nhom_hoc = thong_tin.get("nhom_hoc", "N/A")
             so_tc = thong_tin.get("so_tc", "N/A")
             nhom_thuc_hanh = thong_tin.get("nhom_thuc_hanh", "")
+            hoc_ky_label = self._format_hoc_ky_label(hoc_ky)
             
             message = f"📚 *Chi Tiết Học Phần*\n\n"
             message += f"*{ten_mon_hoc}*\n"
             message += f"  - *Mã HP:* `{ma_mon_hoc}`\n"
-            message += f"  - *Học kỳ:* `{nam_hoc} - HK{hoc_ky}`\n"
+            message += f"  - *Học kỳ:* `{nam_hoc} - {hoc_ky_label}`\n"
             message += f"  - *Nhóm:* `{nhom_hoc}`\n"
             message += f"  - *Số TC:* `{so_tc}`\n"
             if nhom_thuc_hanh:
@@ -964,6 +1018,7 @@ class HocPhanHandler:
             nam_hoc = thong_tin.get("nam_hoc", "")
             hoc_ky = thong_tin.get("hoc_ky", "")
             nhom_hoc = thong_tin.get("nhom_hoc", "")
+            hoc_ky_label = self._format_hoc_ky_excel_label(hoc_ky)
             
             # Cập nhật merge cells để chứa thêm cột STT
             ws.merge_cells('A1:E1')
@@ -977,7 +1032,7 @@ class HocPhanHandler:
             ws['A2'].alignment = Alignment(horizontal='center', vertical='center')
             
             ws.merge_cells('A3:E3')
-            ws['A3'] = f"Năm học: {nam_hoc} - Học kỳ: {hoc_ky} - Nhóm học: {nhom_hoc}"
+            ws['A3'] = f"Năm học: {nam_hoc} - Học kỳ: {hoc_ky_label} - Nhóm học: {nhom_hoc}"
             ws['A3'].font = cell_font
             ws['A3'].alignment = Alignment(horizontal='center', vertical='center')
             
@@ -1089,6 +1144,7 @@ class HocPhanHandler:
                 hoc_ky = thong_tin.get("hoc_ky", "")
                 nhom_hoc = thong_tin.get("nhom_hoc", "")
                 key_check = item.get("key_check", "")
+                hoc_ky_label = self._format_hoc_ky_label(hoc_ky)
                 
                 display_name = f"{ten_mon_hoc} ({ma_mon_hoc})"
                 if len(display_name) > 40:  # Giới hạn độ dài hiển thị
@@ -1097,7 +1153,7 @@ class HocPhanHandler:
                 result.append({
                     "key": key_check,
                     "name": display_name,
-                    "full_name": f"{ten_mon_hoc} ({ma_mon_hoc}) - {nam_hoc} - HK{hoc_ky} - NH{nhom_hoc}",
+                    "full_name": f"{ten_mon_hoc} ({ma_mon_hoc}) - {nam_hoc} - {hoc_ky_label} - NH{nhom_hoc}",
                     "display": str(i+1)
                 })
             
