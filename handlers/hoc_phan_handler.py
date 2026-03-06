@@ -10,6 +10,7 @@ import logging
 import aiohttp
 import io
 import asyncio
+import unicodedata
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
@@ -706,6 +707,97 @@ class HocPhanHandler:
                 "diem_danh_list": []
             }
     
+    def _get_vietnamese_char_sort_key(self, char: str) -> tuple:
+        """
+        Tạo khóa sắp xếp cho một ký tự theo bảng chữ cái tiếng Việt.
+        """
+        vietnamese_alphabet_order = {
+            "a": 0,
+            "ă": 1,
+            "â": 2,
+            "b": 3,
+            "c": 4,
+            "d": 5,
+            "đ": 6,
+            "e": 7,
+            "ê": 8,
+            "g": 9,
+            "h": 10,
+            "i": 11,
+            "k": 12,
+            "l": 13,
+            "m": 14,
+            "n": 15,
+            "o": 16,
+            "ô": 17,
+            "ơ": 18,
+            "p": 19,
+            "q": 20,
+            "r": 21,
+            "s": 22,
+            "t": 23,
+            "u": 24,
+            "ư": 25,
+            "v": 26,
+            "x": 27,
+            "y": 28,
+        }
+        tone_order = {
+            "": 0,
+            "̀": 1,
+            "̉": 2,
+            "̃": 3,
+            "́": 4,
+            "̣": 5,
+        }
+
+        normalized_char = unicodedata.normalize("NFD", char.casefold())
+        if not normalized_char:
+            return (len(vietnamese_alphabet_order), 0, 0)
+
+        if char.casefold() == "đ":
+            return (vietnamese_alphabet_order["đ"], 0, ord("đ"))
+
+        base_char = normalized_char[0]
+        combining_marks = set(normalized_char[1:])
+
+        if base_char == "a":
+            if "̆" in combining_marks:
+                letter = "ă"
+            elif "̂" in combining_marks:
+                letter = "â"
+            else:
+                letter = "a"
+        elif base_char == "e":
+            letter = "ê" if "̂" in combining_marks else "e"
+        elif base_char == "o":
+            if "̛" in combining_marks:
+                letter = "ơ"
+            elif "̂" in combining_marks:
+                letter = "ô"
+            else:
+                letter = "o"
+        elif base_char == "u":
+            letter = "ư" if "̛" in combining_marks else "u"
+        else:
+            letter = base_char
+
+        tone_rank = 0
+        for mark, rank in tone_order.items():
+            if mark and mark in combining_marks:
+                tone_rank = rank
+                break
+
+        letter_rank = vietnamese_alphabet_order.get(letter, len(vietnamese_alphabet_order) + ord(base_char))
+        return (letter_rank, tone_rank, ord(base_char))
+
+    def _build_vietnamese_sort_key(self, value: str) -> tuple:
+        """
+        Tạo khóa sắp xếp cho chuỗi theo bảng chữ cái tiếng Việt.
+        """
+        normalized_value = "".join((value or "").split()).casefold()
+        return tuple(self._get_vietnamese_char_sort_key(char) for char in normalized_value)
+
     def _process_danh_sach_sinh_vien_data(self, danh_sach_sinh_vien_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Xử lý dữ liệu danh sách sinh viên
@@ -742,17 +834,13 @@ class HocPhanHandler:
                     "ho_ten_day_du": ho_ten  # Giữ họ tên đầy đủ để sử dụng nếu cần
                 })
             
-            # Sắp xếp theo bảng chữ cái tiếng Việt (ưu tiên: Tên trước, Họ sau)
-            import locale
-            try:
-                # Thiết lập locale cho tiếng Việt
-                locale.setlocale(locale.LC_COLLATE, 'vi_VN.UTF-8')
-                # Sắp xếp theo Tên trước, nếu trùng thì sắp xếp theo Họ
-                sinh_vien_list.sort(key=lambda x: (locale.strxfrm(x["ten"]), locale.strxfrm(x["ho"])))
-            except locale.Error:
-                # Nếu không thể thiết lập locale, sắp xếp theo phương pháp thông thường
-                logger.warning("Could not set Vietnamese locale, using default sorting")
-                sinh_vien_list.sort(key=lambda x: (x["ten"], x["ho"]))
+            sinh_vien_list.sort(
+                key=lambda student: (
+                    self._build_vietnamese_sort_key(student["ten"]),
+                    self._build_vietnamese_sort_key(student["ho"]),
+                    student["mssv"],
+                )
+            )
             
             return {
                 "lop_info": lop_info,
