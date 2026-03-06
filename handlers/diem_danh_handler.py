@@ -11,6 +11,7 @@ import aiohttp
 from typing import Dict, Any, Optional, List
 
 from telegram import Update, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
 from config.config import Config
@@ -507,6 +508,35 @@ class DiemDanhHandler:
 
     # ==================== Callback Methods ====================
 
+    async def _safe_edit_message_text(
+        self,
+        query,
+        *,
+        text: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        parse_mode: Optional[str] = None,
+        unchanged_notice: Optional[str] = None
+    ) -> bool:
+        """Edit callback message và bỏ qua lỗi khi nội dung không thay đổi."""
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                logger.debug(
+                    "Skip diem danh message edit because content is unchanged | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                if unchanged_notice:
+                    await query.answer(unchanged_notice)
+                return False
+            raise
+
     async def diemdanh_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút chọn campus"""
         query = update.callback_query
@@ -539,10 +569,12 @@ class DiemDanhHandler:
 
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=message,
                 reply_markup=reply_markup,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                unchanged_notice=f"Bạn đang chọn: {campus_name}"
             )
 
     async def diemdanh_numeric_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -562,7 +594,8 @@ class DiemDanhHandler:
             # Thoát
             context.user_data.pop("diemdanh_input", None)
             context.user_data.pop("diemdanh_campus", None)
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text="❎ *Đã thoát lệnh.*\n\nDùng /diemdanh để bắt đầu lại.",
                 parse_mode="Markdown"
             )
@@ -601,7 +634,8 @@ class DiemDanhHandler:
         # Kiểm tra nếu đã nhập đủ 4 số
         if len(current_input) == 4:
             # Thực hiện điểm danh
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=f"{message}\n\nĐang điểm danh...",
                 parse_mode="Markdown"
             )
@@ -609,12 +643,14 @@ class DiemDanhHandler:
             result = await self.handle_submit_diem_danh(user_id, current_input, campus_name)
 
             if result["success"]:
-                await query.edit_message_text(
+                await self._safe_edit_message_text(
+                    query,
                     text=f"✅ *Điểm danh thành công!*\n\n{result['message']}",
                     parse_mode="Markdown"
                 )
             else:
-                await query.edit_message_text(
+                await self._safe_edit_message_text(
+                    query,
                     text=f"{result['message']}",
                     parse_mode="Markdown"
                 )
@@ -623,10 +659,12 @@ class DiemDanhHandler:
             context.user_data.pop("diemdanh_input", None)
             context.user_data.pop("diemdanh_campus", None)
         else:
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=message,
                 reply_markup=reply_markup,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                unchanged_notice="Không có thay đổi."
             )
 
     def register_commands(self, application: Application) -> None:

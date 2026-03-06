@@ -18,6 +18,8 @@ class DatabaseManager:
     def __init__(self):
         self.config = Config()
         self.pool = None
+        self._bot_lock_conn: Optional[asyncpg.Connection] = None
+        self._bot_lock_key: Optional[int] = None
 
     async def connect(self):
         """Khởi tạo connection pool đến PostgreSQL."""
@@ -36,9 +38,58 @@ class DatabaseManager:
 
     async def close(self):
         """Đóng connection pool."""
+        await self.release_bot_instance_lock()
         if self.pool:
             await self.pool.close()
             logger.info("Đã đóng connection pool của PostgreSQL.")
+
+    async def acquire_bot_instance_lock(self, lock_key: int) -> bool:
+        """
+        Cố gắng lấy advisory lock để đảm bảo chỉ có 1 instance bot chạy polling.
+        Lock là session-level nên phải giữ connection đến khi bot dừng.
+        """
+        if not self.pool:
+            raise RuntimeError("Database pool chưa được khởi tạo.")
+
+        if self._bot_lock_conn is not None:
+            return True
+
+        conn = await self.pool.acquire()
+        try:
+            acquired = await conn.fetchval("SELECT pg_try_advisory_lock($1::bigint)", lock_key)
+        except Exception:
+            await self.pool.release(conn)
+            raise
+
+        if acquired:
+            self._bot_lock_conn = conn
+            self._bot_lock_key = lock_key
+            logger.info("Đã lấy bot instance lock với key=%s", lock_key)
+            return True
+
+        await self.pool.release(conn)
+        logger.warning("Không thể lấy bot instance lock với key=%s", lock_key)
+        return False
+
+    async def release_bot_instance_lock(self) -> None:
+        """Nhả advisory lock của bot nếu đang giữ."""
+        if not self._bot_lock_conn:
+            return
+
+        conn = self._bot_lock_conn
+        lock_key = self._bot_lock_key
+        self._bot_lock_conn = None
+        self._bot_lock_key = None
+
+        try:
+            if lock_key is not None:
+                await conn.execute("SELECT pg_advisory_unlock($1::bigint)", lock_key)
+                logger.info("Đã nhả bot instance lock với key=%s", lock_key)
+        except Exception as e:
+            logger.warning("Không thể nhả bot instance lock: %s", e)
+        finally:
+            if self.pool:
+                await self.pool.release(conn)
 
     async def _init_database(self) -> None:
         """Khởi tạo cơ sở dữ liệu và tạo các bảng nếu chưa tồn tại."""
