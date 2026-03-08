@@ -137,6 +137,19 @@ class HocPhanHandler:
                 }
             
             response_data = await self._call_search_hoc_phan_api(token, nam_hoc_hoc_ky_list)
+
+            # Nếu lần 1 thất bại theo đúng điều kiện trả message lỗi bên dưới, retry 1 lần với renew=true
+            if not (response_data and isinstance(response_data, list)):
+                logger.warning(
+                    "Search học phần thất bại lần 1 | user_id=%s nam_hoc_hoc_ky=%s | retry lần 2 với renew=true",
+                    telegram_user_id,
+                    nam_hoc_hoc_ky_list,
+                )
+                response_data = await self._call_search_hoc_phan_api(
+                    token,
+                    nam_hoc_hoc_ky_list,
+                    use_renew=True,
+                )
             
             # 3. Lưu vào cache nếu thành công
             if response_data and isinstance(response_data, list):
@@ -364,7 +377,12 @@ class HocPhanHandler:
                 "message": f"Lỗi không xác định: {str(e)}"
             }
     
-    async def _call_search_hoc_phan_api(self, token: str, nam_hoc_hoc_ky_list: List[str]) -> Optional[Dict[str, Any]]:
+    async def _call_search_hoc_phan_api(
+        self,
+        token: str,
+        nam_hoc_hoc_ky_list: List[str],
+        use_renew: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """
         Gọi API tìm kiếm học phần của HUTECH
         
@@ -382,10 +400,15 @@ class HocPhanHandler:
             headers = self.config.HUTECH_MOBILE_HEADERS.copy()
             headers["authorization"] = f"JWT {token}"
             
-            # Tạo request body
+            # Request body theo mode
             request_body = {
                 "nam_hoc_hoc_ky": nam_hoc_hoc_ky_list
             }
+            if use_renew:
+                request_body = {
+                    "renew": True,
+                    "nam_hoc_hoc_ky": nam_hoc_hoc_ky_list
+                }
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -395,14 +418,19 @@ class HocPhanHandler:
                 ) as response:
                     if response.status == 200:
                         return await response.json()
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Search học phần API error: {response.status} - {error_text}")
-                        return {
-                            "error": True,
-                            "status_code": response.status,
-                            "message": error_text
-                        }
+
+                    error_text = await response.text()
+                    logger.error(
+                        "Search học phần API error%s: %s - %s",
+                        " (renew=true)" if use_renew else "",
+                        response.status,
+                        error_text
+                    )
+                    return {
+                        "error": True,
+                        "status_code": response.status,
+                        "message": error_text
+                    }
         
         except aiohttp.ClientError as e:
             logger.error(f"HTTP client error: {e}")
