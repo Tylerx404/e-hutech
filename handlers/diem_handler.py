@@ -18,6 +18,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
+from telegram.error import BadRequest
 
 from config.config import Config
 from utils.button_style import make_inline_button
@@ -780,6 +781,49 @@ class DiemHandler:
 
     # ==================== Callback Methods ====================
 
+    async def _safe_edit_message_text(
+        self,
+        query,
+        *,
+        text: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        parse_mode: Optional[str] = None
+    ) -> bool:
+        """Edit callback message và bỏ qua lỗi khi nội dung không thay đổi hoặc message đã bị xóa."""
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
+        except BadRequest as e:
+            error_msg = str(e)
+            if "Message is not modified" in error_msg:
+                logger.debug(
+                    "Skip diem message edit because content is unchanged | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                return False
+            if "Message to edit not found" in error_msg:
+                logger.warning(
+                    "Message to edit not found, sending new message | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                if getattr(query, "message", None):
+                    try:
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=reply_markup,
+                            parse_mode=parse_mode
+                        )
+                    except Exception as send_err:
+                        logger.error("Fallback send failed in diem handler: %s", send_err)
+                return False
+            raise
+
     async def diem_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút chọn học kỳ"""
         query = update.callback_query
@@ -814,15 +858,23 @@ class DiemHandler:
 
                         reply_markup = InlineKeyboardMarkup(keyboard)
 
-                        await query.edit_message_text(
+                        await self._safe_edit_message_text(
+                            query,
                             text=message,
                             reply_markup=reply_markup,
                             parse_mode="Markdown"
                         )
                     else:
-                        await query.edit_message_text("Không có học kỳ cũ hơn để hiển thị.")
+                        await self._safe_edit_message_text(
+                            query,
+                            text="Không có học kỳ cũ hơn để hiển thị."
+                        )
                 else:
-                    await query.edit_message_text(result['message'], parse_mode="Markdown")
+                    await self._safe_edit_message_text(
+                        query,
+                        text=result['message'],
+                        parse_mode="Markdown"
+                    )
             elif hocky_key == "back":
                 # Quay lại menu chính
                 result = await self.handle_diem(user_id)
@@ -832,13 +884,18 @@ class DiemHandler:
                     message = self.format_diem_menu_message(result["data"])
                     reply_markup = self.create_main_diem_keyboard(result["data"])
 
-                    await query.edit_message_text(
+                    await self._safe_edit_message_text(
+                        query,
                         text=message,
                         reply_markup=reply_markup,
                         parse_mode="Markdown"
                     )
                 else:
-                    await query.edit_message_text(result['message'], parse_mode="Markdown")
+                    await self._safe_edit_message_text(
+                        query,
+                        text=result['message'],
+                        parse_mode="Markdown"
+                    )
 
             elif hocky_key.startswith("export_"):
                 # Xử lý xuất file Excel
@@ -892,9 +949,16 @@ class DiemHandler:
 
                     except Exception as e:
                         logger.error(f"Lỗi tạo file Excel: {e}", exc_info=True)
-                        await query.edit_message_text(f"Lỗi tạo file Excel: {str(e)}")
+                        await self._safe_edit_message_text(
+                            query,
+                            text=f"Lỗi tạo file Excel: {str(e)}"
+                        )
                 else:
-                    await query.edit_message_text(result['message'], parse_mode="Markdown")
+                    await self._safe_edit_message_text(
+                        query,
+                        text=result['message'],
+                        parse_mode="Markdown"
+                    )
             else:
                 # Xem điểm chi tiết của học kỳ được chọn
                 result = await self.handle_diem(user_id, hocky_key)
@@ -912,13 +976,18 @@ class DiemHandler:
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
 
-                    await query.edit_message_text(
+                    await self._safe_edit_message_text(
+                        query,
                         text=message,
                         reply_markup=reply_markup,
                         parse_mode="Markdown"
                     )
                 else:
-                    await query.edit_message_text(result['message'], parse_mode="Markdown")
+                    await self._safe_edit_message_text(
+                        query,
+                        text=result['message'],
+                        parse_mode="Markdown"
+                    )
 
     def register_commands(self, application: Application) -> None:
         """Đăng ký command handlers với Application"""

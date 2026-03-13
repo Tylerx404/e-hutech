@@ -7,6 +7,7 @@ Xử lý hiển thị danh sách tài khoản đã đăng nhập
 """
 
 import logging
+from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
 from telegram.error import BadRequest
@@ -77,6 +78,47 @@ class DanhSachHandler:
             reply_to_message_id=update.message.message_id
         )
 
+    async def _safe_edit_message_text(
+        self,
+        query,
+        *,
+        text: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        parse_mode: Optional[str] = None,
+        unchanged_notice: Optional[str] = None
+    ) -> str:
+        """Edit callback message và bỏ qua lỗi khi nội dung không thay đổi hoặc message đã bị xóa."""
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return "edited"
+        except BadRequest as e:
+            error_msg = str(e)
+            if "Message is not modified" in error_msg:
+                if unchanged_notice:
+                    await query.answer(unchanged_notice)
+                return "unchanged"
+            if "Message to edit not found" in error_msg:
+                logger.warning(
+                    "Message to edit not found, sending new message | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                if getattr(query, "message", None):
+                    try:
+                        await query.message.reply_text(
+                            text,
+                            reply_markup=reply_markup,
+                            parse_mode=parse_mode
+                        )
+                    except Exception as send_err:
+                        logger.error("Fallback send failed in danh sach handler: %s", send_err)
+                return "not_found"
+            raise
+
     async def danhsach_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ menu danh sách tài khoản"""
         query = update.callback_query
@@ -102,18 +144,14 @@ class DanhSachHandler:
                     active_ho_ten = active_account.get('ho_ten') or active_username
                     message += f"🔹 *Đang sử dụng:* {active_ho_ten}\n\n"
                 message += "Chọn tài khoản để chuyển đổi:"
-                try:
-                    await query.edit_message_text(
-                        message,
-                        reply_markup=reply_markup,
-                        parse_mode="Markdown"
-                    )
-                except BadRequest as e:
-                    if "Message is not modified" in str(e):
-                        await query.answer(f"Đang sử dụng: {username}")
-                    else:
-                        raise
-                else:
+                status = await self._safe_edit_message_text(
+                    query,
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                    unchanged_notice=f"Đang sử dụng: {username}"
+                )
+                if status in ("edited", "not_found"):
                     await query.answer(f"Đã chuyển sang tài khoản: {username}")
 
     def register_commands(self, application: Application) -> None:

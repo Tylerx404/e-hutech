@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List
 
 from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
+from telegram.error import BadRequest
 
 from config.config import Config
 from handlers.diem_danh_handler import CAMPUS_LOCATIONS
@@ -542,6 +543,49 @@ class DiemDanhTatCaHandler:
 
     # ==================== Callback Methods ====================
 
+    async def _safe_edit_message_text(
+        self,
+        query,
+        *,
+        text: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        parse_mode: Optional[str] = None
+    ) -> bool:
+        """Edit callback message và bỏ qua lỗi khi nội dung không thay đổi hoặc message đã bị xóa."""
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
+        except BadRequest as e:
+            error_msg = str(e)
+            if "Message is not modified" in error_msg:
+                logger.debug(
+                    "Skip diem danh tat ca message edit because content is unchanged | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                return False
+            if "Message to edit not found" in error_msg:
+                logger.warning(
+                    "Message to edit not found, sending new message | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                if getattr(query, "message", None):
+                    try:
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=reply_markup,
+                            parse_mode=parse_mode
+                        )
+                    except Exception as send_err:
+                        logger.error("Fallback send failed in diem danh tat ca handler: %s", send_err)
+                return False
+            raise
+
     async def diemdanhtatca_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút chọn campus"""
         query = update.callback_query
@@ -578,7 +622,8 @@ class DiemDanhTatCaHandler:
 
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=message,
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
@@ -601,7 +646,8 @@ class DiemDanhTatCaHandler:
             # Thoát
             context.user_data.pop("diemdanhtatca_input", None)
             context.user_data.pop("diemdanhtatca_campus", None)
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text="❎ *Đã thoát lệnh.*\n\nDùng /diemdanhtatca để bắt đầu lại.",
                 parse_mode="Markdown"
             )
@@ -643,14 +689,16 @@ class DiemDanhTatCaHandler:
         # Kiểm tra nếu đã nhập đủ 4 số
         if len(current_input) == 4:
             # Thực hiện điểm danh tất cả
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=f"{message}\n\nĐang điểm danh tất cả tài khoản...",
                 parse_mode="Markdown"
             )
 
             result = await self.handle_submit_diem_danh_tat_ca(user_id, current_input, campus_name)
 
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=result['message'],
                 parse_mode="Markdown"
             )
@@ -659,7 +707,8 @@ class DiemDanhTatCaHandler:
             context.user_data.pop("diemdanhtatca_input", None)
             context.user_data.pop("diemdanhtatca_campus", None)
         else:
-            await query.edit_message_text(
+            await self._safe_edit_message_text(
+                query,
                 text=message,
                 reply_markup=reply_markup,
                 parse_mode="Markdown"

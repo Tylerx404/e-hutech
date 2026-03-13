@@ -19,6 +19,7 @@ from openpyxl.styles import Font, Alignment, PatternFill
 
 from telegram import Update, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
+from telegram.error import BadRequest
 
 from config.config import Config
 from utils.button_style import make_inline_button
@@ -1322,6 +1323,49 @@ class HocPhanHandler:
 
     # ==================== Callback Methods ====================
 
+    async def _safe_edit_message_text(
+        self,
+        query,
+        *,
+        text: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+        parse_mode: Optional[str] = None
+    ) -> bool:
+        """Edit callback message và bỏ qua lỗi khi nội dung không thay đổi hoặc message đã bị xóa."""
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
+        except BadRequest as e:
+            error_msg = str(e)
+            if "Message is not modified" in error_msg:
+                logger.debug(
+                    "Skip hoc phan message edit because content is unchanged | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                return False
+            if "Message to edit not found" in error_msg:
+                logger.warning(
+                    "Message to edit not found, sending new message | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                if getattr(query, "message", None):
+                    try:
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=reply_markup,
+                            parse_mode=parse_mode
+                        )
+                    except Exception as send_err:
+                        logger.error("Fallback send failed in hoc phan handler: %s", send_err)
+                return False
+            raise
+
     async def hoc_phan_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Xử lý callback từ các nút chọn năm học - học kỳ"""
         query = update.callback_query
@@ -1380,7 +1424,8 @@ class HocPhanHandler:
 
                         reply_markup = InlineKeyboardMarkup(keyboard)
 
-                        await query.edit_message_text(
+                        await self._safe_edit_message_text(
+                            query,
                             text=message,
                             reply_markup=reply_markup,
                             parse_mode="Markdown"
@@ -1391,15 +1436,23 @@ class HocPhanHandler:
                             [make_inline_button("Quay lại", "hocphan_back", tone="neutral", emoji=None)]
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
-                        await query.edit_message_text(
+                        await self._safe_edit_message_text(
+                            query,
                             text=f"{search_result['message']}",
                             reply_markup=reply_markup,
                             parse_mode="Markdown"
                         )
                 else:
-                    await query.edit_message_text("Không tìm thấy năm học - học kỳ được chọn.")
+                    await self._safe_edit_message_text(
+                        query,
+                        text="Không tìm thấy năm học - học kỳ được chọn."
+                    )
             else:
-                await query.edit_message_text(result['message'], parse_mode="Markdown")
+                await self._safe_edit_message_text(
+                    query,
+                    text=result['message'],
+                    parse_mode="Markdown"
+                )
         elif callback_data.startswith("hocphan_"):
             # Xử lý khi chọn học phần
             if callback_data == "hocphan_back":
@@ -1424,13 +1477,18 @@ class HocPhanHandler:
 
                     reply_markup = InlineKeyboardMarkup(keyboard)
 
-                    await query.edit_message_text(
+                    await self._safe_edit_message_text(
+                        query,
                         text=message,
                         reply_markup=reply_markup,
                         parse_mode="Markdown"
                     )
                 else:
-                    await query.edit_message_text(result['message'], parse_mode="Markdown")
+                    await self._safe_edit_message_text(
+                        query,
+                        text=result['message'],
+                        parse_mode="Markdown"
+                    )
             else:
                 # Xem chi tiết học phần
                 key_lop_hoc_phan = callback_data.split("hocphan_")[1]
@@ -1448,10 +1506,17 @@ class HocPhanHandler:
                             selected_nam_hoc = nam_hoc_hoc_ky_list[0]["key"]
                         else:
                             logger.error("No nam_hoc_hoc_ky available")
-                            await query.edit_message_text("Không có năm học - học kỳ nào để tìm kiếm.")
+                            await self._safe_edit_message_text(
+                                query,
+                                text="Không có năm học - học kỳ nào để tìm kiếm."
+                            )
                             return
                     else:
-                        await query.edit_message_text(result['message'], parse_mode="Markdown")
+                        await self._safe_edit_message_text(
+                            query,
+                            text=result['message'],
+                            parse_mode="Markdown"
+                        )
                         return
 
                 # Tìm kiếm học phần với năm học - học kỳ đã chọn
@@ -1486,15 +1551,23 @@ class HocPhanHandler:
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
 
-                        await query.edit_message_text(
+                        await self._safe_edit_message_text(
+                            query,
                             text=message,
                             reply_markup=reply_markup,
                             parse_mode="Markdown"
                         )
                     else:
-                        await query.edit_message_text("Không tìm thấy học phần được chọn.")
+                        await self._safe_edit_message_text(
+                            query,
+                            text="Không tìm thấy học phần được chọn."
+                        )
                 else:
-                    await query.edit_message_text(search_result['message'], parse_mode="Markdown")
+                    await self._safe_edit_message_text(
+                        query,
+                        text=search_result['message'],
+                        parse_mode="Markdown"
+                    )
         elif callback_data.startswith("danhsach_"):
             # Xử lý khi chọn danh sách sinh viên
             key_lop_hoc_phan = callback_data.split("danhsach_")[1]
@@ -1588,9 +1661,16 @@ class HocPhanHandler:
 
 
                 except Exception as e:
-                    await query.edit_message_text(f"Lỗi tạo file Excel: {str(e)}")
+                    await self._safe_edit_message_text(
+                        query,
+                        text=f"Lỗi tạo file Excel: {str(e)}"
+                    )
             else:
-                await query.edit_message_text(result['message'], parse_mode="Markdown")
+                await self._safe_edit_message_text(
+                    query,
+                    text=result['message'],
+                    parse_mode="Markdown"
+                )
         elif callback_data.startswith("diemdanh_lop_hoc_phan_"):
             # Xử lý khi chọn điểm danh
             key_lop_hoc_phan = callback_data.split("diemdanh_lop_hoc_phan_")[1]
@@ -1613,18 +1693,26 @@ class HocPhanHandler:
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
-                await query.edit_message_text(
+                await self._safe_edit_message_text(
+                    query,
                     text=message,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
             else:
-                await query.edit_message_text(result['message'], parse_mode="Markdown")
+                await self._safe_edit_message_text(
+                    query,
+                    text=result['message'],
+                    parse_mode="Markdown"
+                )
         elif callback_data == "lichthi_back":
             # Xử lý khi quay lại từ lịch thi
-            await query.edit_message_text(
-                "📅 *Lịch Thi*\n\n"
-                "Vui lòng thử lại sau hoặc liên hệ admin nếu vấn đề tiếp tục.",
+            await self._safe_edit_message_text(
+                query,
+                text=(
+                    "📅 *Lịch Thi*\n\n"
+                    "Vui lòng thử lại sau hoặc liên hệ admin nếu vấn đề tiếp tục."
+                ),
                 parse_mode="Markdown"
             )
 

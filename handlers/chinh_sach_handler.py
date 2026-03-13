@@ -123,8 +123,14 @@ class ChinhSachHandler:
         try:
             await query.edit_message_text(message)
         except BadRequest as e:
-            if "Message is not modified" not in str(e):
-                raise
+            error_msg = str(e)
+            if "Message is not modified" in error_msg:
+                return
+            if "Message to edit not found" in error_msg:
+                if query.message:
+                    await query.message.reply_text(message)
+                return
+            raise
 
     async def consent_command_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Chặn command nếu người dùng chưa chấp nhận chính sách."""
