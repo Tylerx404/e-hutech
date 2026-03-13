@@ -1037,8 +1037,18 @@ class HocPhanHandler:
             message = "📝 *Lịch Sử Điểm Danh*\n"
             
             total_sessions = len(diem_danh_list)
-            present_sessions = sum(1 for item in diem_danh_list if item and item.get("diem_danh") and item.get("diem_danh", {}).get("ket_qua") == "co_mat")
-            absent_sessions = sum(1 for item in diem_danh_list if item and item.get("diem_danh") and item.get("diem_danh", {}).get("ket_qua") == "vang_mat")
+            present_sessions = sum(
+                1
+                for item in diem_danh_list
+                if item and item.get("diem_danh") and item.get("diem_danh", {}).get("ket_qua") == "co_mat"
+            )
+            absent_sessions = sum(
+                1
+                for item in diem_danh_list
+                if item
+                and item.get("diem_danh")
+                and item.get("diem_danh", {}).get("ket_qua") in {"vang_mat", "vang"}
+            )
             
             message += f"\n*Tổng quan:*\n"
             message += f"  - ✅ *Có mặt:* `{present_sessions}/{total_sessions}`\n"
@@ -1062,7 +1072,7 @@ class HocPhanHandler:
                 if ket_qua == "co_mat":
                     status_icon = "✅"
                     status_text = "Có mặt"
-                elif ket_qua == "vang_mat":
+                elif ket_qua in {"vang_mat", "vang"}:
                     status_icon = "❌"
                     status_text = "Vắng mặt"
                 else:
