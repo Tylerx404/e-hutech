@@ -526,7 +526,8 @@ class DiemDanhHandler:
             )
             return True
         except BadRequest as e:
-            if "Message is not modified" in str(e):
+            error_msg = str(e)
+            if "Message is not modified" in error_msg:
                 logger.debug(
                     "Skip diem danh message edit because content is unchanged | user_id=%s callback_data=%s",
                     getattr(query.from_user, "id", "unknown"),
@@ -534,6 +535,22 @@ class DiemDanhHandler:
                 )
                 if unchanged_notice:
                     await query.answer(unchanged_notice)
+                return False
+            if "Message to edit not found" in error_msg:
+                logger.warning(
+                    "Message to edit not found, sending new message | user_id=%s callback_data=%s",
+                    getattr(query.from_user, "id", "unknown"),
+                    getattr(query, "data", "unknown")
+                )
+                if getattr(query, "message", None):
+                    try:
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=reply_markup,
+                            parse_mode=parse_mode
+                        )
+                    except Exception as send_err:
+                        logger.error("Fallback send failed in diem danh handler: %s", send_err)
                 return False
             raise
 
