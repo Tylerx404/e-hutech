@@ -4,8 +4,12 @@
 """
 Handler chính sách bảo mật + guard chấp nhận.
 
-Cú pháp callback: `consent_accept` / `consent_decline`.
-Hàm `consent_required(user_id)` trả về True nếu user chưa chấp nhận.
+Bot yêu cầu user chấp nhận chính sách trước khi dùng lệnh (trừ `/start`,
+`/trogiup`, `/chinhsach`). Trạng thái chấp nhận lưu trong DB.
+
+Cú pháp callback:
+    consent_accept  - chấp nhận chính sách
+    consent_decline - từ chối → xóa toàn bộ tài khoản của user
 """
 
 import logging
@@ -17,10 +21,13 @@ from config.config import Config
 
 logger = logging.getLogger(__name__)
 
+# Các lệnh được phép dùng khi chưa chấp nhận chính sách
 ALLOWED_COMMANDS_WITHOUT_CONSENT = {"start", "trogiup", "chinhsach"}
 
 
 class ChinhSachHandler:
+    """Handler cho `/chinhsach` — hiển thị và xử lý chấp nhận chính sách."""
+
     def __init__(self, db_manager, cache_manager, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.cache_manager = cache_manager
@@ -31,6 +38,7 @@ class ChinhSachHandler:
 
     @staticmethod
     def extract_command_name(message_text: str) -> str:
+        """Tách tên command từ message text. Vd: `/tkb@bot_name` → `tkb`."""
         if not message_text or not message_text.startswith("/"):
             return ""
         first = message_text.split()[0]
@@ -40,6 +48,7 @@ class ChinhSachHandler:
         return command.lower()
 
     async def has_user_consented(self, user_id: int) -> bool:
+        """Kiểm tra user đã chấp nhận chính sách hay chưa."""
         return await self.db_manager.has_accepted_policy(user_id)
 
     # ==================== Public API ====================

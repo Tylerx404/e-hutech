@@ -2,24 +2,26 @@
 # -*- coding: utf-8 -*-
 
 """
-Helper tạo nút bấm (inline keyboard) theo cú pháp Bot API.
+Helper tạo inline keyboard (Bot API 9.4+).
 
-Trả về dict (không phải object InlineKeyboardButton của python-telegram-bot)
-để gửi qua HTTP API dưới dạng JSON trong trường `reply_markup.inline_keyboard`.
+Trả về dict (không phải object của thư viện ngoài) để gửi qua
+`utils.telegram_api.TelegramAPI.call` dưới dạng JSON.
 
-Mỗi nút có dạng:
+Mỗi button có dạng:
     {
         "text": "...",
-        "callback_data": "...",     # hoặc "url": "..." cho link ngoài
-        "style": "primary" | "success" | "danger" | None,
-        "icon_custom_emoji_id": "..."  # optional
+        "callback_data": "...",   # hoặc "url": "..." cho link ngoài
+        "style": "primary" | "success" | "danger",   # optional
+        "icon_custom_emoji_id": "...",                # optional, Bot API 7.x+
     }
 
-`style` chỉ áp dụng cho callback button. Các giá trị hợp lệ theo Bot API 9.4:
-primary, success, danger.
+Style chỉ áp dụng cho callback button. Các tone hỗ trợ:
+- `primary`, `success`, `danger`: ánh xạ 1-1 sang style Bot API.
+- `warning`, `neutral`: ánh xạ sang `primary`.
+- `None`: không đặt style.
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 
 TONE_TO_STYLE = {
@@ -38,8 +40,7 @@ def make_inline_button(
     emoji: Optional[str] = None,
     icon_custom_emoji_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Tạo 1 inline button (dạng dict) cho callback query.
+    """Tạo 1 callback button.
 
     Args:
         label: Text hiển thị trên nút.
@@ -47,7 +48,7 @@ def make_inline_button(
         tone: Một trong {"primary", "success", "danger", "warning", "neutral"}.
               None để không đặt style.
         emoji: Emoji đặt ở đầu nhãn (optional).
-        icon_custom_emoji_id: ID custom emoji (optional, Bot API 7.x+).
+        icon_custom_emoji_id: ID custom emoji (optional).
     """
     style = TONE_TO_STYLE.get(tone) if tone else None
     text = f"{emoji} {label}" if emoji else label
@@ -60,23 +61,18 @@ def make_inline_button(
     return button
 
 
-def make_url_button(
-    label: str,
-    url: str,
-    emoji: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Tạo 1 URL button."""
+def make_url_button(label: str, url: str, emoji: Optional[str] = None) -> Dict[str, Any]:
+    """Tạo 1 URL button (mở link ngoài khi bấm)."""
     text = f"{emoji} {label}" if emoji else label
     return {"text": text, "url": url}
 
 
 def build_inline_keyboard(rows: List[List[Dict[str, Any]]]) -> Dict[str, Any]:
-    """
-    Đóng gói danh sách row nút thành object `reply_markup` cho Bot API.
+    """Đóng gói danh sách row nút thành object `reply_markup` cho Bot API.
 
     Args:
-        rows: Danh sách các hàng, mỗi hàng là danh sách các dict button
-              (kết quả của make_inline_button / make_url_button).
+        rows: Mỗi hàng là danh sách dict button (kết quả của make_inline_button
+              hoặc make_url_button).
 
     Returns:
         {"inline_keyboard": [[...], [...]]}

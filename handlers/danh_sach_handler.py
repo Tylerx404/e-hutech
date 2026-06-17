@@ -2,10 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-Handler cho lệnh /danhsach.
+Handler cho lệnh `/danhsach`.
 
-Hiển thị danh sách tài khoản đã đăng nhập, cho phép chuyển đổi account active
-bằng callback. Cú pháp callback: `switch_account_<username>`.
+Hiển thị danh sách tất cả tài khoản user đã đăng nhập, cho phép chuyển đổi
+account active bằng callback.
+
+Cú pháp callback:
+    switch_account_<username>  - chuyển account active
 """
 
 import logging
@@ -19,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class DanhSachHandler:
+    """Handler cho `/danhsach` — liệt kê tài khoản, chuyển active."""
+
     def __init__(self, db_manager, cache_manager, logout_handler, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.cache_manager = cache_manager

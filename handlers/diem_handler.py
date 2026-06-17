@@ -4,10 +4,12 @@
 """
 Handler xử lý điểm từ hệ thống HUTECH.
 
-Sử dụng Rich Message (Bot API 10.1) cho bảng điểm:
-- Bảng điểm chi tiết: <table bordered> với header <th> cho 10 cột
+Lấy bảng điểm theo từng học kỳ, xem chi tiết, xuất Excel.
+
+Sử dụng Rich Message (Bot API 10.1):
+- Bảng điểm chi tiết: `<table bordered>` với 10 cột
   (STT, Mã HP, Tên, STC, KT1, KT2, Thi, Điểm 10, Điểm 4, Điểm chữ).
-- Menu học kỳ: <h2> cho mỗi học kỳ.
+- Menu học kỳ: `<h2>` cho mỗi học kỳ.
 
 Cú pháp callback:
     diem_<hocky_key>         - xem chi tiết học kỳ
@@ -51,6 +53,8 @@ logger = logging.getLogger(__name__)
 
 
 class DiemHandler:
+    """Handler cho `/diem` — xem bảng điểm, xuất Excel."""
+
     def __init__(self, db_manager, cache_manager, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.cache_manager = cache_manager

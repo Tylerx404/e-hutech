@@ -4,17 +4,20 @@
 """
 Handler xử lý thời khóa biểu (TKB) từ hệ thống HUTECH.
 
+Lấy TKB theo tuần (mặc định tuần hiện tại), hỗ trợ xem các tuần trước/sau
+và xuất danh sách môn đã chọn ra file `.ics` (iCalendar).
+
 Cú pháp callback:
     tkb_<offset>                 - tuần offset (-1, 0, 1, ...)
     tkb_export_ics_<offset>      - mở menu chọn môn để xuất .ics
     tkb_subject_toggle_<ma_hp>   - bật/tắt chọn môn
-    tkb_subject_confirm          - xác nhận
-    tkb_subject_cancel           - hủy
+    tkb_subject_confirm          - xác nhận xuất
+    tkb_subject_cancel           - hủy chọn môn
     tkb_time_all                 - xuất toàn bộ thời gian
     tkb_time_current             - xuất từ tuần hiện tại
     tkb_time_back                - quay lại menu chọn môn
 
-State tạm per user (Redis):
+State tạm per user (lưu trong cache):
     tkb_week_offset: int
     tkb_subjects: list
     selected_subjects: list
@@ -61,6 +64,8 @@ TKB_TTL = 1800  # 30 phút
 
 
 class TkbHandler:
+    """Handler cho `/tkb` — xem thời khóa biểu, xuất .ics."""
+
     def __init__(self, db_manager, cache_manager, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.cache_manager = cache_manager

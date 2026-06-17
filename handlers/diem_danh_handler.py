@@ -2,19 +2,23 @@
 # -*- coding: utf-8 -*-
 
 """
-Handler xử lý điểm danh từ hệ thống HUTECH.
+Handler điểm danh cho tài khoản đang active.
 
-State tạm per user lưu trong Redis (utils/state_store):
-    feature: "diemdanh" | "diemdanhtatca"
+Luồng `/diemdanh`:
+1. Chọn campus (hoặc dùng campus đã lưu).
+2. Nhập mã số điểm danh `CODE_LENGTH` chữ số (mặc định 4).
+3. Gọi API HUTECH submit điểm danh với GPS của campus.
+
+State tạm per user (lưu trong cache):
+    feature: "diemdanh"
     campus: tên campus đã chọn
     input: chuỗi số đã nhập
-    accounts: danh sách accounts (chỉ cho diemdanhtatca)
 
 Cú pháp callback:
-    diemdanh_campus_<campus>      - chọn campus (1 account)
-    num_<digit>                   - nhập 1 số
-    num_exit                      - thoát
-    num_delete                    - xoá 1 số
+    diemdanh_campus_<campus>  - chọn campus
+    num_<digit>               - nhập 1 số
+    num_exit                  - thoát
+    num_delete                - xóa 1 số
 """
 
 import asyncio
@@ -39,6 +43,8 @@ CODE_LENGTH = 4
 
 
 class DiemDanhHandler:
+    """Handler cho `/diemdanh` — điểm danh tài khoản active."""
+
     def __init__(self, db_manager, cache_manager, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.cache_manager = cache_manager

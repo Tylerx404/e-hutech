@@ -2,17 +2,22 @@
 # -*- coding: utf-8 -*-
 
 """
-Handler xử lý điểm danh tất cả tài khoản cùng lúc.
+Handler điểm danh cho tất cả tài khoản của user cùng lúc.
 
-State tạm per user (Redis):
+Tương tự `DiemDanhHandler` nhưng nhập 1 mã rồi submit cho từng account.
+Dùng khi user có nhiều tài khoản và muốn điểm danh hết trong 1 lần.
+
+State tạm per user (lưu trong cache):
     feature: "diemdanhtatca"
     campus: tên campus
     input: chuỗi số đã nhập
     accounts: danh sách accounts (cache lại lúc bắt đầu)
 
 Cú pháp callback:
-    diemdanhtatca_campus_<campus>
-    num_tatca_<digit>  | num_tatca_exit  | num_tatca_delete
+    diemdanhtatca_campus_<campus>  - chọn campus
+    num_tatca_<digit>              - nhập 1 số
+    num_tatca_exit                 - thoát
+    num_tatca_delete               - xóa 1 số
 """
 
 import asyncio
@@ -35,6 +40,8 @@ CODE_LENGTH = 4
 
 
 class DiemDanhTatCaHandler:
+    """Handler cho `/diemdanhtatca` — điểm danh cho mọi tài khoản cùng lúc."""
+
     def __init__(self, db_manager, cache_manager, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.cache_manager = cache_manager

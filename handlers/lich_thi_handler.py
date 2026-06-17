@@ -4,11 +4,10 @@
 """
 Handler xử lý lịch thi từ hệ thống HUTECH.
 
-Sử dụng Rich Message (Bot API 10.1):
-- Danh sách môn thi theo từng học kỳ: bảng <table bordered striped> với các cột
-  (Môn học, Mã HP, Ngày thi, Giờ thi, Phòng, Hình thức, Thời lượng).
+Lấy danh sách môn thi sắp tới, nhóm theo học kỳ. Dùng Rich Message để hiển
+thị bảng gọn: Môn học, Mã HP, Ngày thi, Giờ thi, Phòng, Hình thức, Thời lượng.
 
-Cú pháp: gửi /lichthi để xem tất cả lịch thi sắp tới.
+Cú pháp: gửi `/lichthi` để xem tất cả lịch thi sắp tới.
 """
 
 import json
@@ -34,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 
 class LichThiHandler:
+    """Handler cho `/lichthi` — xem lịch thi các môn sắp tới."""
+
     def __init__(self, db_manager, cache_manager, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.cache_manager = cache_manager

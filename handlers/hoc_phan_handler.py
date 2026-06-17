@@ -4,9 +4,13 @@
 """
 Handler xử lý học phần từ hệ thống HUTECH.
 
+Tra cứu học phần theo học kỳ, xem chi tiết lớp học phần (giảng viên, lịch
+học, danh sách sinh viên, lịch sử điểm danh của lớp).
+
 Cú pháp callback:
     namhoc_<ma_hoc_ky>                    - chọn học kỳ
-    hocphan_<ma_hoc_ky>|<key_check>       - xem chi tiết học phần (embed học kỳ để tra cứu đúng)
+    hocphan_<ma_hoc_ky>|<key_check>       - xem chi tiết học phần
+                                             (embed học kỳ để tra cứu đúng)
     hocphan_back                          - quay lại
     danhsach_<key>                        - danh sách sinh viên của lớp
     diemdanh_lop_hoc_phan_<key>           - điểm danh của lớp
@@ -46,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 
 class HocPhanHandler:
+    """Handler cho `/hocphan` — tra cứu học phần, danh sách lớp, điểm danh của lớp."""
+
     def __init__(self, db_manager, cache_manager, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.cache_manager = cache_manager

@@ -2,9 +2,15 @@
 # -*- coding: utf-8 -*-
 
 """
-Handler xử lý vị trí điểm danh (campus).
+Handler quản lý vị trí điểm danh (campus) mặc định.
 
-Cú pháp callback: `vitri_select_<campus_name>` và `vitri_delete`.
+Dùng cho `/diemdanh` và `/diemdanhtatca` — bot sẽ dùng campus đã lưu làm
+vị trí GPS mặc định khi submit điểm danh. Nếu chưa set, user phải chọn
+trong menu trước khi nhập mã số.
+
+Cú pháp callback:
+    vitri_select_<campus_name>  - lưu campus làm mặc định
+    vitri_delete                - xóa campus đã lưu
 """
 
 import logging
@@ -16,7 +22,7 @@ from config.config import Config
 
 logger = logging.getLogger(__name__)
 
-# Danh sách các campus mặc định
+# Danh sách campus của HUTECH kèm tọa độ GPS
 CAMPUS_LOCATIONS: Dict[str, Dict[str, float]] = {
     "Thu Duc Campus": {"lat": 10.8550845, "long": 106.7853143},
     "Sai Gon Campus": {"lat": 10.8021417, "long": 106.7149192},
@@ -26,6 +32,8 @@ CAMPUS_LOCATIONS: Dict[str, Dict[str, float]] = {
 
 
 class ViTriHandler:
+    """Handler cho `/vitri` — quản lý campus mặc định cho điểm danh."""
+
     def __init__(self, db_manager, telegram_api: Optional[TelegramAPI] = None):
         self.db_manager = db_manager
         self.config = Config()

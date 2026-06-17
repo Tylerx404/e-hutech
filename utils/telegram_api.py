@@ -2,18 +2,22 @@
 # -*- coding: utf-8 -*-
 
 """
-Thin client cho Telegram Bot API, gọi trực tiếp `https://api.telegram.org/bot<TOKEN>/<METHOD>`
-qua aiohttp, không qua thư viện python-telegram-bot.
+Thin async client cho Telegram Bot API.
 
-Cung cấp:
-- TelegramAPI: gọi JSON, multipart upload, getUpdates long-polling
-- Hàm tiện ích cấp cao: send_message, send_rich_message, send_document,
-  edit_message_text_rich, answer_callback_query, delete_message, ...
+Gọi trực tiếp `https://api.telegram.org/bot<TOKEN>/<METHOD>` qua `aiohttp`,
+không qua thư viện python-telegram-bot. Tự quản lý một `aiohttp.ClientSession`
+dùng chung cho cả vòng đời bot.
+
+Hỗ trợ:
+- Gọi JSON (`call`) và multipart upload (`call_form`).
+- Long-polling `getUpdates`.
+- High-level helpers: `send_message`, `send_rich_message`, `edit_message_text_*`,
+  `answer_callback_query`, `delete_message`, `send_document`.
 
 Cú pháp Rich Message (Bot API 10.1):
-- Gửi: gọi `sendRichMessage` với `rich_message: {"html": "<h1>...</h1>"}`
-- Edit: gọi `editMessageText` với `rich_message: {"html": "..."}` thay cho `text`
-  (text và rich_message là mutually exclusive).
+- Gửi mới: dùng `send_rich_message` với `rich_message: {"html": "<h1>...</h1>"}`.
+- Edit: dùng `edit_message_text_rich` với `rich_message: {"html": "..."}` thay cho
+  `text` (text và rich_message là mutually exclusive).
 """
 
 import asyncio
@@ -32,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Bot API base URL
 _API_BASE = "https://api.telegram.org"
 
-# Các update types cần nhận
+# Các update types bot cần nhận (qua long-polling)
 DEFAULT_ALLOWED_UPDATES = [
     "message",
     "edited_message",
@@ -42,7 +46,7 @@ DEFAULT_ALLOWED_UPDATES = [
 
 
 class TelegramAPIError(Exception):
-    """Lỗi trả về từ Telegram Bot API (khi ok=False)."""
+    """Lỗi trả về từ Telegram Bot API (khi `ok=False` trong response)."""
 
     def __init__(self, method: str, code: int, description: str):
         super().__init__(f"{method} failed: {code} {description}")
@@ -52,22 +56,20 @@ class TelegramAPIError(Exception):
 
 
 class TelegramAPI:
-    """
-    Thin async client cho Telegram Bot API.
-
-    Tự quản lý một aiohttp.ClientSession dùng chung cho cả vòng đời bot.
-    """
+    """Thin async client cho Telegram Bot API."""
 
     def __init__(self, config: Optional[Config] = None):
         self.config = config or Config()
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def start(self) -> None:
+        """Khởi tạo aiohttp session. Gọi 1 lần trước khi dùng các method khác."""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
             logger.info("Đã khởi tạo aiohttp session cho Telegram Bot API.")
 
     async def close(self) -> None:
+        """Đóng aiohttp session khi bot dừng."""
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
@@ -75,11 +77,13 @@ class TelegramAPI:
 
     @property
     def session(self) -> aiohttp.ClientSession:
+        """Trả về session hiện tại. Raise nếu chưa `start()`."""
         if self._session is None or self._session.closed:
             raise RuntimeError("TelegramAPI chưa được start(). Gọi start() trước.")
         return self._session
 
     def _url(self, method: str) -> str:
+        """Sinh URL đầy đủ cho 1 method của Bot API."""
         return f"{_API_BASE}/bot{self.config.TELEGRAM_BOT_TOKEN}/{method}"
 
     async def call(
@@ -88,11 +92,8 @@ class TelegramAPI:
         *,
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """
-        Gọi API dạng JSON (POST). Trả về `result` nếu ok=True, raise TelegramAPIError nếu lỗi.
-        """
+        """Gọi Bot API dạng JSON (POST). Trả về `result` nếu ok=True, raise TelegramAPIError nếu lỗi."""
         url = self._url(method)
-        # Lọc None values
         if params:
             params = {k: v for k, v in params.items() if v is not None}
         try:
@@ -118,14 +119,17 @@ class TelegramAPI:
         data: Optional[Dict[str, Any]] = None,
         files: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """
-        Gọi API dạng multipart/form-data (cho upload file). Trả về `result` nếu ok=True.
-        `files` là dict: {"field_name": (filename, bytes_or_path, content_type)}
+        """Gọi Bot API dạng multipart/form-data (dùng cho upload file).
+
+        Args:
+            method: Tên method (vd `sendDocument`).
+            data: Form fields dạng string/int/dict/list (dict/list sẽ tự JSON-encode).
+            files: Dict `{field_name: file_value}`. `file_value` có thể là Path,
+                   bytes, hoặc tuple đã đúng định dạng.
         """
         url = self._url(method)
         if data:
             data = {k: v for k, v in data.items() if v is not None}
-        # Chuẩn bị form data cho aiohttp
         form = aiohttp.FormData()
         if data:
             for k, v in data.items():
@@ -154,13 +158,15 @@ class TelegramAPI:
 
     @staticmethod
     def _normalize_file(value: Any) -> tuple:
-        """
-        Chuẩn hoá file input thành tuple (filename, payload, content_type).
+        """Chuẩn hoá file input thành tuple `(filename, payload, content_type)` cho aiohttp.
+
         Hỗ trợ:
-        - tuple đã đúng định dạng
-        - (filename, bytes)
-        - (filename, Path)
-        - (filename, file_object)
+        - tuple đã đúng định dạng `(filename, payload, content_type)`.
+        - `(filename, bytes)`.
+        - `(filename, Path)`.
+        - `(filename, file_object)`.
+        - `Path` thuần.
+        - `bytes` / `bytearray`.
         """
         if isinstance(value, tuple):
             if len(value) == 4:
@@ -191,6 +197,7 @@ class TelegramAPI:
     # ==================== High-level helpers ====================
 
     async def get_me(self) -> Dict[str, Any]:
+        """Gọi `getMe` — lấy thông tin bot hiện tại."""
         return await self.call("getMe")
 
     async def get_updates(
@@ -199,12 +206,11 @@ class TelegramAPI:
         limit: int = 100,
         allowed_updates: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Long-polling getUpdates.
+        """Long-polling `getUpdates`.
 
         Args:
             offset: Identifier của update tiếp theo. None = lấy từ đầu.
-            limit: Số update tối đa (1-100).
+            limit: Số update tối đa mỗi lần (1-100).
             allowed_updates: Danh sách update types cần nhận.
         """
         params: Dict[str, Any] = {
@@ -225,7 +231,7 @@ class TelegramAPI:
         parse_mode: Optional[str] = None,
         link_preview_options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Gửi tin nhắn text đơn giản qua sendMessage."""
+        """Gửi tin nhắn text đơn giản qua `sendMessage`. Tự tắt link preview khi có parse_mode."""
         params: Dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,
@@ -233,7 +239,6 @@ class TelegramAPI:
             "reply_to_message_id": reply_to_message_id,
             "parse_mode": parse_mode,
         }
-        # Luôn tắt link preview mặc định để tin nhắn gọn
         if parse_mode and link_preview_options is None:
             params["link_preview_options"] = {"is_disabled": True}
         return await self.call("sendMessage", params=params)
@@ -246,14 +251,10 @@ class TelegramAPI:
         reply_markup: Optional[Dict[str, Any]] = None,
         reply_to_message_id: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Gửi Rich Message (Bot API 10.1) qua sendRichMessage với `rich_message.html`.
+        """Gửi Rich Message (Bot API 10.1) qua `sendRichMessage`.
 
         Args:
-            chat_id: ID chat.
-            html: Chuỗi HTML đã build bằng utils/rich_message.py.
-            reply_markup: Dict reply_markup (optional).
-            reply_to_message_id: ID tin nhắn reply (optional).
+            html: Chuỗi HTML đã build bằng `utils/rich_message.py`.
         """
         params: Dict[str, Any] = {
             "chat_id": chat_id,
@@ -271,11 +272,10 @@ class TelegramAPI:
         *,
         reply_markup: Optional[Dict[str, Any]] = None,
     ) -> Union[Dict[str, Any], bool]:
-        """
-        Edit message text dùng Rich Message HTML.
+        """Edit message dùng Rich Message HTML.
 
-        Trả về True nếu "Message is not modified" (không có thay đổi),
-        ngược lại trả về dict Message.
+        Trả về `True` nếu API trả về "Message is not modified" (coi như thành công).
+        Ngược lại trả về dict Message.
         """
         params: Dict[str, Any] = {
             "chat_id": chat_id,
@@ -299,7 +299,10 @@ class TelegramAPI:
         reply_markup: Optional[Dict[str, Any]] = None,
         parse_mode: Optional[str] = None,
     ) -> Union[Dict[str, Any], bool]:
-        """Edit message text dạng plain/HTML/Markdown."""
+        """Edit message text dạng plain/HTML/Markdown.
+
+        Trả về `True` nếu "Message is not modified".
+        """
         params: Dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
@@ -320,7 +323,7 @@ class TelegramAPI:
         message_id: int,
         reply_markup: Optional[Dict[str, Any]] = None,
     ) -> Union[Dict[str, Any], bool]:
-        """Chỉ thay đổi reply_markup, giữ nguyên text."""
+        """Chỉ thay đổi reply_markup của message, giữ nguyên text."""
         params: Dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
@@ -342,9 +345,7 @@ class TelegramAPI:
         url: Optional[str] = None,
         cache_time: int = 0,
     ) -> bool:
-        """
-        Trả lời callback query. Trả về True nếu thành công hoặc query đã hết hạn.
-        """
+        """Trả lời callback query. Trả về True nếu thành công hoặc query đã hết hạn."""
         params: Dict[str, Any] = {
             "callback_query_id": callback_query_id,
             "text": text,
@@ -366,6 +367,7 @@ class TelegramAPI:
             raise
 
     async def delete_message(self, chat_id: Union[int, str], message_id: int) -> bool:
+        """Xóa 1 message. Trả về False nếu không thể xóa (vd đã quá 48h)."""
         try:
             await self.call("deleteMessage", params={"chat_id": chat_id, "message_id": message_id})
             return True
@@ -382,14 +384,13 @@ class TelegramAPI:
         caption: Optional[str] = None,
         reply_to_message_id: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Gửi file (document) qua sendDocument dạng multipart/form-data.
+        """Gửi file (document) qua `sendDocument`.
 
         Args:
-            file: Có thể là Path, bytes, hoặc tuple theo định dạng aiohttp.
+            file: Path, bytes, hoặc tuple theo định dạng aiohttp.
             filename: Tên file hiển thị trên Telegram.
+            caption: Mô tả file (optional).
         """
-        # Nếu file là Path, để aiohttp tự stream
         if isinstance(file, Path):
             file_tuple = (filename, file.open("rb"), mimetypes.guess_type(str(file))[0])
         elif isinstance(file, tuple):
