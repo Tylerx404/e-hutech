@@ -2,19 +2,15 @@
 # -*- coding: utf-8 -*-
 
 """
-Các hàm tiện ích cho bot Telegram HUTECH
+Hàm tiện ích dùng chung cho bot.
 """
 
-import uuid
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
+
 def generate_uuid() -> str:
-    """
-    Tạo một UUID mới cho thiết bị
-    
-    Returns:
-        UUID dưới dạng string
-    """
+    """Sinh UUID v4 uppercase. Dùng làm device UUID cho mỗi tài khoản HUTECH."""
     return str(uuid.uuid4()).upper()

@@ -2,7 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
-File cấu hình cho bot Telegram HUTECH
+File cấu hình cho bot Telegram HUTECH.
+
+Bot gọi trực tiếp https://api.telegram.org/bot<TOKEN>/<METHOD> qua aiohttp,
+không qua thư viện python-telegram-bot. Vì vậy hầu hết timeout/pool/connection
+của thư viện đã được lược bỏ. Chỉ giữ lại vài tham số thật sự cần cho long-polling.
+
+Backend có thể tự động fallback:
+- POSTGRES_URL rỗng → dùng SQLite
+- REDIS_URL rỗng → dùng in-memory cache
+Để chọn thủ công, set STORAGE_BACKEND và CACHE_BACKEND trong .env.
+
+Class `Config` là singleton: nhiều module gọi `Config()` nhưng chỉ thực sự
+load env + log 1 lần. Các lần sau trả về instance đã cache.
 """
 
 import os
@@ -14,14 +26,28 @@ logger = logging.getLogger(__name__)
 
 
 class Config:
+    _instance: "Config | None" = None
+    _initialized: bool = False
+
+    def __new__(cls):
+        # Singleton: mọi lần gọi Config() đều trả về cùng 1 instance
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        # Chỉ chạy 1 lần dù __init__ có được gọi nhiều lần
+        if Config._initialized:
+            return
+        Config._initialized = True
+
         env_path = Path('.env')
         if env_path.exists():
             load_dotenv()
-        
+
         # Token của bot Telegram
         self.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        
+
         # Cấu hình API HUTECH
         self.HUTECH_API_BASE_URL = "https://api.hutech.edu.vn"
         self.HUTECH_LOGIN_ENDPOINT = "/api-permission-v2-sinh-vien/api/authen/user/enter-system/login-normal"
@@ -34,100 +60,93 @@ class Config:
         self.HUTECH_HOC_PHAN_DIEM_DANH_ENDPOINT = "/api-elearning/api/lop-hoc-phan/sinh-vien/diem-danh/get-list"
         self.HUTECH_HOC_PHAN_DANH_SACH_SINH_VIEN_ENDPOINT = "/api-elearning/api/lop-hoc-phan/sinh-vien/get"
         self.HUTECH_DIEM_DANH_SUBMIT_ENDPOINT = "/api-elearning/api/qr-code/submit"
-        
+
         # Headers cho API
         self.HUTECH_STUDENT_HEADERS = {
             "user-agent": "Dart/3.8 (dart:io)",
             "app-key": "SINHVIEN_DAIHOC",
             "content-type": "application/json"
         }
-        
+
         self.HUTECH_MOBILE_HEADERS = {
             "user-agent": "Dart/3.8 (dart:io)",
             "app-key": "MOBILE_HUTECH",
             "content-type": "application/json"
         }
-        
-        # Cấu hình database PostgreSQL
+
+        # Cấu hình database & cache
         self.POSTGRES_URL = os.getenv("POSTGRES_URL", "")
-
-        # Cấu hình Redis
         self.REDIS_URL = os.getenv("REDIS_URL", "")
+        self.SQLITE_PATH = os.getenv("SQLITE_PATH", "/data/bot.db")
+        self.STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "").lower()
+        self.CACHE_BACKEND = os.getenv("CACHE_BACKEND", "").lower()
 
-        # Cấu hình network polling Telegram
-        self.TELEGRAM_CONNECT_TIMEOUT = self._env_float("TELEGRAM_CONNECT_TIMEOUT", 10.0, min_value=0.0)
-        self.TELEGRAM_READ_TIMEOUT = self._env_float("TELEGRAM_READ_TIMEOUT", 20.0, min_value=0.0)
-        self.TELEGRAM_WRITE_TIMEOUT = self._env_float("TELEGRAM_WRITE_TIMEOUT", 20.0, min_value=0.0)
-        self.TELEGRAM_POOL_TIMEOUT = self._env_float("TELEGRAM_POOL_TIMEOUT", 5.0, min_value=0.0)
-        self.TELEGRAM_CONNECTION_POOL_SIZE = self._env_int("TELEGRAM_CONNECTION_POOL_SIZE", 16, min_value=1)
+        # Auto-detect backend khi chưa set thủ công
+        if not self.STORAGE_BACKEND:
+            self.STORAGE_BACKEND = "postgres" if self.POSTGRES_URL else "sqlite"
+        if not self.CACHE_BACKEND:
+            self.CACHE_BACKEND = "redis" if self.REDIS_URL else "memory"
 
-        self.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = self._env_float(
-            "TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT",
-            self.TELEGRAM_CONNECT_TIMEOUT,
-            min_value=0.0,
-        )
-        self.TELEGRAM_GET_UPDATES_READ_TIMEOUT = self._env_float(
-            "TELEGRAM_GET_UPDATES_READ_TIMEOUT",
-            35.0,
-            min_value=0.0,
-        )
-        self.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = self._env_float(
-            "TELEGRAM_GET_UPDATES_WRITE_TIMEOUT",
-            self.TELEGRAM_WRITE_TIMEOUT,
-            min_value=0.0,
-        )
-        self.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = self._env_float(
-            "TELEGRAM_GET_UPDATES_POOL_TIMEOUT",
-            self.TELEGRAM_POOL_TIMEOUT,
-            min_value=0.0,
-        )
-
-        self.TELEGRAM_POLL_TIMEOUT = self._env_int("TELEGRAM_POLL_TIMEOUT", 10, min_value=1)
-        self.TELEGRAM_POLL_INTERVAL = self._env_float("TELEGRAM_POLL_INTERVAL", 0.5, min_value=0.0)
-        self.TELEGRAM_BOOTSTRAP_RETRIES = self._env_int("TELEGRAM_BOOTSTRAP_RETRIES", -1, min_value=-1)
-        
-        # Kiểm tra các biến môi trường cần thiết
+        # Kiểm tra các biến môi trường cần thiết (chỉ 1 lần)
         self._validate_config()
 
-    @staticmethod
-    def _env_float(name: str, default: float, min_value: float | None = None) -> float:
-        raw_value = os.getenv(name)
-        if raw_value is None or raw_value == "":
-            return default
-        try:
-            value = float(raw_value)
-        except ValueError:
-            logger.warning("Giá trị %s=%r không hợp lệ, dùng mặc định %s", name, raw_value, default)
-            return default
-
-        if min_value is not None and value < min_value:
-            logger.warning("Giá trị %s=%s nhỏ hơn %s, dùng mặc định %s", name, value, min_value, default)
-            return default
-        return value
-
-    @staticmethod
-    def _env_int(name: str, default: int, min_value: int | None = None) -> int:
-        raw_value = os.getenv(name)
-        if raw_value is None or raw_value == "":
-            return default
-        try:
-            value = int(raw_value)
-        except ValueError:
-            logger.warning("Giá trị %s=%r không hợp lệ, dùng mặc định %s", name, raw_value, default)
-            return default
-
-        if min_value is not None and value < min_value:
-            logger.warning("Giá trị %s=%s nhỏ hơn %s, dùng mặc định %s", name, value, min_value, default)
-            return default
-        return value
-    
     def _validate_config(self):
-        """Kiểm tra các cấu hình bắt buộc"""
+        """Kiểm tra các cấu hình bắt buộc. Bỏ raise cho URL rỗng — chỉ raise khi
+        backend được chọn thủ công mà thiếu URL tương ứng."""
         if not self.TELEGRAM_BOT_TOKEN:
-            raise ValueError("TELEGRAM_BOT_TOKEN không được để trống. Hãy đặt biến môi trường TELEGRAM_BOT_TOKEN hoặc kiểm tra file .env.")
-        
-        if not self.POSTGRES_URL:
-            raise ValueError("POSTGRES_URL không được để trống. Hãy đặt biến môi trường POSTGRES_URL (ví dụ: postgresql+asyncpg://user:password@host:port/dbname).")
+            raise ValueError(
+                "TELEGRAM_BOT_TOKEN không được để trống. "
+                "Hãy đặt biến môi trường TELEGRAM_BOT_TOKEN hoặc kiểm tra file .env."
+            )
 
-        if not self.REDIS_URL:
-            raise ValueError("REDIS_URL không được để trống. Hãy đặt biến môi trường REDIS_URL (ví dụ: redis://localhost:6379/0).")
+        if self.STORAGE_BACKEND not in ("postgres", "sqlite"):
+            raise ValueError(
+                f"STORAGE_BACKEND không hợp lệ: {self.STORAGE_BACKEND!r}. "
+                "Chỉ chấp nhận 'postgres' hoặc 'sqlite'."
+            )
+        if self.CACHE_BACKEND not in ("redis", "memory"):
+            raise ValueError(
+                f"CACHE_BACKEND không hợp lệ: {self.CACHE_BACKEND!r}. "
+                "Chỉ chấp nhận 'redis' hoặc 'memory'."
+            )
+
+        # Raise chỉ khi user CHỌN postgres/redis mà quên URL tương ứng
+        if self.STORAGE_BACKEND == "postgres" and not self.POSTGRES_URL:
+            raise ValueError(
+                "STORAGE_BACKEND=postgres yêu cầu POSTGRES_URL. "
+                "Để trống STORAGE_BACKEND để tự động fallback sang sqlite."
+            )
+        if self.CACHE_BACKEND == "redis" and not self.REDIS_URL:
+            raise ValueError(
+                "CACHE_BACKEND=redis yêu cầu REDIS_URL. "
+                "Để trống CACHE_BACKEND để tự động fallback sang in-memory."
+            )
+
+        # Log rõ backend nào đang dùng để user thấy lúc khởi động (1 lần)
+        storage_label = (
+            f"postgres ({self._redact_url(self.POSTGRES_URL)})"
+            if self.STORAGE_BACKEND == "postgres"
+            else f"sqlite @ {self.SQLITE_PATH}"
+        )
+        cache_label = (
+            f"redis ({self._redact_url(self.REDIS_URL)})"
+            if self.CACHE_BACKEND == "redis"
+            else "in-memory (mất khi restart, không share giữa instances)"
+        )
+        logger.info("Storage backend: %s", storage_label)
+        logger.info("Cache backend:   %s", cache_label)
+
+    @staticmethod
+    def _redact_url(url: str) -> str:
+        """Ẩn password trong URL khi log."""
+        if "@" not in url:
+            return url
+        try:
+            scheme_userpass, host_part = url.rsplit("@", 1)
+            scheme, userpass = scheme_userpass.split("://", 1)
+            if ":" in userpass:
+                user, _ = userpass.split(":", 1)
+                return f"{scheme}://{user}:***@{host_part}"
+            return url
+        except Exception:
+            return url

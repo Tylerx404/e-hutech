@@ -1,7 +1,48 @@
 services:
+  hutech-bot:
+    build:
+      context: .
+    image: ghcr.io/Tylerx404/e-hutech
+    container_name: hutech-bot
+    profiles: ["full", "no-db", "no-cache"]
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - POSTGRES_URL=${POSTGRES_URL:-}
+      - REDIS_URL=${REDIS_URL:-}
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-}
+      - CACHE_BACKEND=${CACHE_BACKEND:-}
+      - SQLITE_PATH=/data/bot.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_JSON=${LOG_JSON:-true}
+      - TZ=Asia/Ho_Chi_Minh
+    volumes:
+      - data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   postgres:
-    image: postgres:latest
-    container_name: hutech-bot_postgres
+    image: postgres
+    container_name: hutech-postgres
+    profiles: ["full", "no-cache"]
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -14,12 +55,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - hutech-bot-network
 
   redis:
-    image: redis:latest
-    container_name: hutech-bot_redis
+    image: redis
+    container_name: hutech-redis
+    profiles: ["full", "no-db"]
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -28,57 +70,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - hutech-bot-network
-
-  hutech-bot:
-    build:
-      context: .
-    image: hutech-bot
-    container_name: hutech-bot
-    restart: unless-stopped
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-your_bot_token_here}
-      - POSTGRES_URL=${POSTGRES_URL:-postgresql://user:password@postgres:5432/db_name}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/cache_name}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LOG_JSON=${LOG_JSON:-true}
-      - TELEGRAM_CONNECT_TIMEOUT=${TELEGRAM_CONNECT_TIMEOUT:-10}
-      - TELEGRAM_READ_TIMEOUT=${TELEGRAM_READ_TIMEOUT:-20}
-      - TELEGRAM_WRITE_TIMEOUT=${TELEGRAM_WRITE_TIMEOUT:-20}
-      - TELEGRAM_POOL_TIMEOUT=${TELEGRAM_POOL_TIMEOUT:-5}
-      - TELEGRAM_CONNECTION_POOL_SIZE=${TELEGRAM_CONNECTION_POOL_SIZE:-16}
-      - TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT=${TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT:-10}
-      - TELEGRAM_GET_UPDATES_READ_TIMEOUT=${TELEGRAM_GET_UPDATES_READ_TIMEOUT:-35}
-      - TELEGRAM_GET_UPDATES_WRITE_TIMEOUT=${TELEGRAM_GET_UPDATES_WRITE_TIMEOUT:-20}
-      - TELEGRAM_GET_UPDATES_POOL_TIMEOUT=${TELEGRAM_GET_UPDATES_POOL_TIMEOUT:-5}
-      - TELEGRAM_POLL_TIMEOUT=${TELEGRAM_POLL_TIMEOUT:-10}
-      - TELEGRAM_POLL_INTERVAL=${TELEGRAM_POLL_INTERVAL:-0.5}
-      - TELEGRAM_BOOTSTRAP_RETRIES=${TELEGRAM_BOOTSTRAP_RETRIES:--1}
-      - TZ=Asia/Ho_Chi_Minh
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "print('Health check passed')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - hutech-bot-network
 
 volumes:
   postgres_data:
   redis_data:
-
-networks:
-  hutech-bot-network:
-    driver: bridge
+  data:

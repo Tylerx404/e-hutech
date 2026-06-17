@@ -1,9 +1,8 @@
-python-telegram-bot
 aiohttp
 python-dotenv
 openpyxl
 asyncpg
-psycopg2-binary
+aiosqlite
 redis
 pytz
 icalendar

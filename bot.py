@@ -2,22 +2,33 @@
 # -*- coding: utf-8 -*-
 
 """
-Bot Telegram HUTECH
-File chính để khởi chạy bot
+Bot Telegram HUTECH - entrypoint.
+
+Gọi trực tiếp `https://api.telegram.org/bot<TOKEN>/<METHOD>` qua aiohttp,
+không qua thư viện python-telegram-bot.
+
+Cơ chế:
+- Long-polling getUpdates với offset + exponential backoff
+- Tự dispatch update: command / text / callback
+- State tạm per user lưu trong Redis (qua utils/state_store)
+- Instance lock qua DatabaseManager để chỉ 1 instance bot chạy polling
+- Tác vụ nền: auto refresh cache mỗi 10 phút
 """
 
-import logging
 import asyncio
 import hashlib
+import logging
+import signal
 from contextlib import suppress
-
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
-from telegram.error import Conflict, NetworkError, TelegramError
+from typing import Any, Dict, List, Optional
 
 from config.config import Config
 from database.db_manager import DatabaseManager
 from cache.cache_manager import CacheManager
+from utils.logging_config import setup_logging
+from utils.state_store import StateStore
+from utils.telegram_api import TelegramAPI, TelegramAPIError, DEFAULT_ALLOWED_UPDATES
+
 from handlers.login_handler import LoginHandler
 from handlers.logout_handler import LogoutHandler
 from handlers.tkb_handler import TkbHandler
@@ -29,68 +40,295 @@ from handlers.diem_danh_tat_ca_handler import DiemDanhTatCaHandler
 from handlers.danh_sach_handler import DanhSachHandler
 from handlers.vi_tri_handler import ViTriHandler
 from handlers.chinh_sach_handler import ChinhSachHandler
-from utils.logging_config import setup_logging
 
-# Cấu hình logging tập trung theo biến môi trường (LOG_LEVEL, LOG_JSON).
 setup_logging()
 logger = logging.getLogger(__name__)
 
 
 class HutechBot:
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = Config()
         self.db_manager = DatabaseManager()
         self.cache_manager = CacheManager()
+        self.telegram = TelegramAPI(self.config)
+        self.state = StateStore(self.cache_manager)
 
-        # Initialize handlers
-        self.login_handler = LoginHandler(self.db_manager, self.cache_manager)
-        self.logout_handler = LogoutHandler(self.db_manager, self.cache_manager)
-        self.tkb_handler = TkbHandler(self.db_manager, self.cache_manager)
-        self.lich_thi_handler = LichThiHandler(self.db_manager, self.cache_manager)
-        self.diem_handler = DiemHandler(self.db_manager, self.cache_manager)
-        self.hoc_phan_handler = HocPhanHandler(self.db_manager, self.cache_manager)
-        self.diem_danh_handler = DiemDanhHandler(self.db_manager, self.cache_manager)
-        self.diem_danh_tat_ca_handler = DiemDanhTatCaHandler(self.db_manager, self.cache_manager)
-        self.vi_tri_handler = ViTriHandler(self.db_manager)
-        self.danh_sach_handler = DanhSachHandler(self.db_manager, self.cache_manager, self.logout_handler)
-        self.chinh_sach_handler = ChinhSachHandler(self.db_manager, self.cache_manager)
+        # Handlers
+        self.login_handler = LoginHandler(self.db_manager, self.cache_manager, self.telegram)
+        self.logout_handler = LogoutHandler(self.db_manager, self.cache_manager, self.telegram)
+        self.tkb_handler = TkbHandler(self.db_manager, self.cache_manager, self.telegram)
+        self.lich_thi_handler = LichThiHandler(self.db_manager, self.cache_manager, self.telegram)
+        self.diem_handler = DiemHandler(self.db_manager, self.cache_manager, self.telegram)
+        self.hoc_phan_handler = HocPhanHandler(self.db_manager, self.cache_manager, self.telegram)
+        self.diem_danh_handler = DiemDanhHandler(self.db_manager, self.cache_manager, self.telegram)
+        self.diem_danh_tat_ca_handler = DiemDanhTatCaHandler(
+            self.db_manager, self.cache_manager, self.telegram
+        )
+        self.vi_tri_handler = ViTriHandler(self.db_manager, self.telegram)
+        self.danh_sach_handler = DanhSachHandler(
+            self.db_manager, self.cache_manager, self.logout_handler, self.telegram
+        )
+        self.chinh_sach_handler = ChinhSachHandler(
+            self.db_manager, self.cache_manager, self.telegram
+        )
 
-    async def global_error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Bắt các lỗi chưa được xử lý trong pipeline của Telegram."""
-        update_id = None
-        user_id = None
-        chat_id = None
+        self._stop_event = asyncio.Event()
+        self._auto_refresh_task: Optional[asyncio.Task] = None
 
-        if isinstance(update, Update):
-            update_id = update.update_id
-            if update.effective_user:
-                user_id = update.effective_user.id
-            if update.effective_chat:
-                chat_id = update.effective_chat.id
+    # ==================== Lifecycle ====================
 
-        error = context.error
-        if error:
+    async def run(self) -> None:
+        await self.db_manager.connect()
+        await self.cache_manager.connect()
+        await self.telegram.start()
+
+        lock_key = self._build_instance_lock_key(self.config.TELEGRAM_BOT_TOKEN)
+        acquired = await self.db_manager.acquire_bot_instance_lock(lock_key)
+        if not acquired:
             logger.error(
-                "Unhandled update error | update_id=%s user_id=%s chat_id=%s",
-                update_id,
-                user_id,
-                chat_id,
-                exc_info=(type(error), error, error.__traceback__),
+                "Phát hiện instance bot khác đang chạy (lock key=%s). Thoát.", lock_key
+            )
+            await self._cleanup()
+            return
+
+        try:
+            await self._run_polling_loop()
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("Đang dừng bot...")
+        except Exception:
+            logger.exception("Bot crashed unexpectedly.")
+            raise
+        finally:
+            await self._cleanup()
+
+    async def _cleanup(self) -> None:
+        if self._auto_refresh_task and not self._auto_refresh_task.done():
+            self._auto_refresh_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._auto_refresh_task
+        await self.telegram.close()
+        await self.db_manager.close()
+        await self.cache_manager.close()
+        logger.info("Bot đã dừng và đóng các kết nối.")
+
+    @staticmethod
+    def _build_instance_lock_key(bot_token: str) -> int:
+        digest = hashlib.blake2b(bot_token.encode("utf-8"), digest_size=8).digest()
+        return int.from_bytes(digest, byteorder="big", signed=True)
+
+    # ==================== Polling ====================
+
+    async def _run_polling_loop(self) -> None:
+        backoff = 1
+        offset: Optional[int] = None
+        try:
+            me = await self.telegram.get_me()
+            logger.info("Bot đang chạy: @%s (id=%s)", me.get("username"), me.get("id"))
+        except Exception as e:
+            logger.warning("Không thể gọi getMe lúc khởi động: %s", e)
+
+        self._auto_refresh_task = asyncio.create_task(self._auto_refresh_cache_task())
+
+        while not self._stop_event.is_set():
+            try:
+                updates = await self.telegram.get_updates(
+                    offset=offset,
+                    limit=100,
+                    allowed_updates=DEFAULT_ALLOWED_UPDATES,
+                )
+                backoff = 1  # Reset backoff khi thành công
+                for update in updates:
+                    offset = update["update_id"] + 1
+                    try:
+                        await self._dispatch(update)
+                    except Exception:
+                        logger.exception(
+                            "Lỗi xử lý update_id=%s", update.get("update_id")
+                        )
+            except TelegramAPIError as e:
+                logger.warning("Telegram API error, retry sau %ss: %s", backoff, e.description)
+                await self._sleep_or_stop(backoff)
+                backoff = min(backoff * 2, 30)
+
+    async def _sleep_or_stop(self, seconds: float) -> None:
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            return
+
+    # ==================== Dispatch ====================
+
+    async def _dispatch(self, update: Dict[str, Any]) -> None:
+        # 1. Callback query
+        if "callback_query" in update:
+            await self._handle_callback(update["callback_query"])
+            return
+
+        # 2. Message
+        if "message" in update:
+            await self._handle_message(update["message"])
+            return
+
+        # 3. edited_message - hiện không xử lý
+        # 4. my_chat_member - hiện không xử lý
+
+    async def _handle_message(self, message: Dict[str, Any]) -> None:
+        chat = message.get("chat") or {}
+        from_user = message.get("from") or {}
+        chat_id = chat.get("id")
+        user_id = from_user.get("id")
+        text = (message.get("text") or "").strip()
+        message_id = message.get("message_id")
+
+        if chat_id is None or user_id is None:
+            return
+
+        # Nếu user có state login (text message không phải command) → xử lý login
+        st = await self.state.get_state(user_id)
+        if st and st.get("step") in ("awaiting_username", "awaiting_password") and not text.startswith("/"):
+            handled = await self.login_handler.on_user_text(chat_id, user_id, text, message_id)
+            if handled:
+                return
+
+        # Nếu là command
+        if text.startswith("/"):
+            await self._handle_command(chat_id, user_id, text, message_id)
+            return
+
+        # Text không phải command và không trong state → bỏ qua
+        logger.debug("Bỏ qua text message không xử lý: %s", text[:50])
+
+    async def _handle_command(self, chat_id: int, user_id: int, text: str, message_id: int) -> None:
+        # Tách command và args
+        parts = text.split()
+        cmd = parts[0][1:].split("@")[0].lower()  # bỏ / và bot username
+        args = parts[1:]
+
+        # Guard chính sách
+        if await self.chinh_sach_handler.check_command_guard(user_id, cmd):
+            await self.telegram.send_message(
+                chat_id=chat_id,
+                text="Bạn cần chấp nhận chính sách bảo mật trước khi dùng lệnh này.",
+                reply_to_message_id=message_id,
+            )
+            await self.chinh_sach_handler.cmd_chinhsach(chat_id, user_id, message_id)
+            return
+
+        reply_to = message_id
+        if cmd == "start":
+            await self._cmd_start(chat_id, user_id, reply_to)
+        elif cmd == "trogiup" or cmd == "help":
+            await self._cmd_help(chat_id, reply_to)
+        elif cmd == "dangnhap":
+            await self.login_handler.start(chat_id, user_id, reply_to)
+        elif cmd == "dangxuat":
+            await self.logout_handler.handle(chat_id, user_id, reply_to)
+        elif cmd == "tkb":
+            await self.tkb_handler.cmd_tkb(chat_id, user_id, args, reply_to)
+        elif cmd == "lichthi":
+            await self.lich_thi_handler.cmd_lichthi(chat_id, user_id, reply_to)
+        elif cmd == "diem":
+            await self.diem_handler.cmd_diem(chat_id, user_id, reply_to)
+        elif cmd == "hocphan":
+            await self.hoc_phan_handler.cmd_hocphan(chat_id, user_id, reply_to)
+        elif cmd == "diemdanh":
+            await self.diem_danh_handler.cmd_diemdanh(chat_id, user_id, reply_to)
+        elif cmd == "diemdanhtatca":
+            await self.diem_danh_tat_ca_handler.cmd_diemdanhtatca(chat_id, user_id, reply_to)
+        elif cmd == "vitri":
+            await self.vi_tri_handler.cmd_vitri(chat_id, user_id, reply_to)
+        elif cmd == "danhsach":
+            await self.danh_sach_handler.cmd_danhsach(chat_id, user_id, reply_to)
+        elif cmd == "chinhsach":
+            await self.chinh_sach_handler.cmd_chinhsach(chat_id, user_id, reply_to)
+        else:
+            await self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Lệnh không tồn tại. Dùng /trogiup để xem danh sách lệnh.",
+                reply_to_message_id=reply_to,
+            )
+
+    async def _handle_callback(self, callback_query: Dict[str, Any]) -> None:
+        callback_id = callback_query.get("id")
+        from_user = callback_query.get("from") or {}
+        message = callback_query.get("message") or {}
+        user_id = from_user.get("id")
+        chat_id = (message.get("chat") or {}).get("id")
+        message_id = message.get("message_id")
+        callback_data = callback_query.get("data") or ""
+
+        if not callback_id or user_id is None or chat_id is None or message_id is None:
+            return
+
+        # Guard chính sách
+        if await self.chinh_sach_handler.check_callback_guard(user_id, callback_data):
+            await self.telegram.answer_callback_query(
+                callback_id, text="Bạn cần chấp nhận chính sách trước khi sử dụng bot.",
+                show_alert=True,
             )
             return
 
-        logger.error(
-            "Unhandled update error | update_id=%s user_id=%s chat_id=%s",
-            update_id,
-            user_id,
-            chat_id,
-        )
+        try:
+            if callback_data.startswith("consent_"):
+                await self.chinh_sach_handler.cb_consent(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif callback_data.startswith("diemdanh_campus_"):
+                await self.diem_danh_handler.cb_campus(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif callback_data.startswith("num_") and not callback_data.startswith("num_tatca_"):
+                await self.diem_danh_handler.cb_numeric(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif callback_data.startswith("diemdanhtatca_campus_"):
+                await self.diem_danh_tat_ca_handler.cb_campus(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif callback_data.startswith("num_tatca_"):
+                await self.diem_danh_tat_ca_handler.cb_numeric(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif callback_data.startswith("vitri_"):
+                await self.vi_tri_handler.cb_handle(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif callback_data.startswith("switch_account_"):
+                await self.danh_sach_handler.cb_switch(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif callback_data.startswith("tkb_"):
+                await self.tkb_handler.cb_route(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif callback_data.startswith("diem_"):
+                await self.diem_handler.cb_route(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            elif (
+                callback_data.startswith("namhoc_")
+                or callback_data.startswith("hocphan_")
+                or callback_data.startswith("danhsach_")
+                or callback_data.startswith("diemdanh_lop_hoc_phan_")
+            ):
+                await self.hoc_phan_handler.cb_route(
+                    callback_id, chat_id, message_id, user_id, callback_data
+                )
+            else:
+                await self.telegram.answer_callback_query(callback_id)
+                logger.debug("Callback không xử lý: %s", callback_data)
+        except TelegramAPIError as e:
+            logger.warning("Lỗi khi xử lý callback: %s", e.description)
+        except Exception:
+            logger.exception("Lỗi không xác định khi xử lý callback data=%s", callback_data)
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Xử lý lệnh /start"""
-        user = update.effective_user
-        await update.message.reply_html(
-            f"Chào {user.mention_html()}! Tôi là bot HUTECH.\n\n"
+    # ==================== Commands ====================
+
+    async def _cmd_start(self, chat_id: int, user_id: int, reply_to_message_id: Optional[int]) -> None:
+        from_user_first_name = ""
+        # Lấy first name từ start message (gọi lại getUpdates thì tốn kém; bỏ qua)
+        message = (
+            f"Chào bạn! Tôi là bot HUTECH.\n\n"
             f"/dangnhap để đăng nhập vào hệ thống HUTECH.\n"
             f"/danhsach để xem danh sách tài khoản đã đăng nhập.\n"
             f"/vitri để cài đặt vị trí điểm danh mặc định.\n"
@@ -102,205 +340,60 @@ class HutechBot:
             f"/hocphan để xem thông tin học phần.\n"
             f"/trogiup để xem các lệnh có sẵn.\n"
             f"/chinhsach để xem chính sách bảo mật.\n"
-            f"/dangxuat để đăng xuất khỏi hệ thống.",
-            reply_to_message_id=update.message.message_id
+            f"/dangxuat để đăng xuất khỏi hệ thống."
+        )
+        await self.telegram.send_message(
+            chat_id=chat_id, text=message, reply_to_message_id=reply_to_message_id
         )
 
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Xử lý lệnh /help"""
-        help_text = """
-Các lệnh có sẵn:
-
-/dangnhap - Đăng nhập vào hệ thống HUTECH
-/danhsach - Xem danh sách tài khoản đã đăng nhập
-/vitri - Cài đặt vị trí điểm danh mặc định
-/diemdanh - Điểm danh cho tài khoản hiện tại
-/diemdanhtatca - Điểm danh tất cả tài khoản cùng lúc
-/tkb - Xem thời khóa biểu
-/lichthi - Xem lịch thi
-/diem - Xem điểm
-/hocphan - Xem thông tin học phần
-/trogiup - Hiển thị trợ giúp
-/chinhsach - Xem chính sách bảo mật
-/dangxuat - Đăng xuất khỏi hệ thống
-        """
-        await update.message.reply_text(help_text, reply_to_message_id=update.message.message_id)
-
-    def setup_handlers(self, application: Application) -> None:
-        """Thiết lập các handler cho bot"""
-        # Chính sách bảo mật: callback + command + guard
-        self.chinh_sach_handler.register_callbacks(application, group=-2)
-        self.chinh_sach_handler.register_commands(application, group=-2)
-        self.chinh_sach_handler.register_guards(application, group=-1)
-
-        # Basic commands (giữ trong bot.py)
-        application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("trogiup", self.help_command))
-
-        # Login conversation handler
-        application.add_handler(self.login_handler.get_conversation_handler())
-
-        # Delegate registrations to handlers
-        self.logout_handler.register_commands(application)
-
-        self.tkb_handler.register_commands(application)
-        self.tkb_handler.register_callbacks(application)
-
-        self.lich_thi_handler.register_commands(application)
-
-        self.diem_handler.register_commands(application)
-        self.diem_handler.register_callbacks(application)
-
-        self.hoc_phan_handler.register_commands(application)
-        self.hoc_phan_handler.register_callbacks(application)
-
-        self.diem_danh_handler.register_commands(application)
-        self.diem_danh_handler.register_callbacks(application)
-
-        self.diem_danh_tat_ca_handler.register_commands(application)
-        self.diem_danh_tat_ca_handler.register_callbacks(application)
-
-        self.vi_tri_handler.register_commands(application)
-        self.vi_tri_handler.register_callbacks(application)
-
-        self.danh_sach_handler.register_commands(application)
-        self.danh_sach_handler.register_callbacks(application)
-
-    async def auto_refresh_cache_task(self):
-        """Tác vụ nền tự động xóa cache của người dùng đang đăng nhập."""
-        while True:
-            await asyncio.sleep(600)  # Chờ 10 phút
-
-            logged_in_users = await self.db_manager.get_all_logged_in_users()
-
-            if logged_in_users:
-                for user_id in logged_in_users:
-                    await self.cache_manager.clear_user_cache(user_id, log_info=False)
-
-    def polling_error_callback(self, error: TelegramError) -> None:
-        """Xử lý lỗi polling để tránh dừng bot khi mạng chập chờn."""
-        if isinstance(error, NetworkError):
-            logger.warning("Polling network error, sẽ tự thử lại: %s", error)
-            return
-
-        if isinstance(error, Conflict):
-            logger.warning(
-                "Polling conflict: có instance khác đang getUpdates với cùng bot token. "
-                "Vui lòng đảm bảo chỉ chạy 1 instance bot."
-            )
-            return
-
-        logger.error(
-            "Polling error không phải network error.",
-            exc_info=(type(error), error, error.__traceback__),
+    async def _cmd_help(self, chat_id: int, reply_to_message_id: Optional[int]) -> None:
+        help_text = (
+            "Các lệnh có sẵn:\n\n"
+            "/dangnhap - Đăng nhập vào hệ thống HUTECH\n"
+            "/danhsach - Xem danh sách tài khoản đã đăng nhập\n"
+            "/vitri - Cài đặt vị trí điểm danh mặc định\n"
+            "/diemdanh - Điểm danh cho tài khoản hiện tại\n"
+            "/diemdanhtatca - Điểm danh tất cả tài khoản cùng lúc\n"
+            "/tkb - Xem thời khóa biểu\n"
+            "/lichthi - Xem lịch thi\n"
+            "/diem - Xem điểm\n"
+            "/hocphan - Xem thông tin học phần\n"
+            "/trogiup - Hiển thị trợ giúp\n"
+            "/chinhsach - Xem chính sách bảo mật\n"
+            "/dangxuat - Đăng xuất khỏi hệ thống"
+        )
+        await self.telegram.send_message(
+            chat_id=chat_id, text=help_text, reply_to_message_id=reply_to_message_id
         )
 
-    @staticmethod
-    def _build_instance_lock_key(bot_token: str) -> int:
-        """
-        Sinh lock key ổn định theo bot token để tránh đụng lock giữa nhiều bot dùng chung DB.
-        """
-        digest = hashlib.blake2b(bot_token.encode("utf-8"), digest_size=8).digest()
-        return int.from_bytes(digest, byteorder="big", signed=True)
+    # ==================== Background task ====================
 
-    async def run(self) -> None:
-        """Khởi chạy bot và quản lý vòng đời của các kết nối."""
-        # Kết nối đến cơ sở dữ liệu và cache
-        await self.db_manager.connect()
-        await self.cache_manager.connect()
-
-        lock_key = self._build_instance_lock_key(self.config.TELEGRAM_BOT_TOKEN)
-        acquired = await self.db_manager.acquire_bot_instance_lock(lock_key)
-        if not acquired:
-            logger.error(
-                "Phát hiện instance bot khác đang chạy (lock key=%s). "
-                "Tiến trình hiện tại sẽ thoát để tránh xung đột getUpdates.",
-                lock_key,
-            )
-            return
-
-        auto_refresh_task = None
-        application = None
-        try:
-            # Tạo ứng dụng
-            application = (
-                Application.builder()
-                .token(self.config.TELEGRAM_BOT_TOKEN)
-                .connect_timeout(self.config.TELEGRAM_CONNECT_TIMEOUT)
-                .read_timeout(self.config.TELEGRAM_READ_TIMEOUT)
-                .write_timeout(self.config.TELEGRAM_WRITE_TIMEOUT)
-                .pool_timeout(self.config.TELEGRAM_POOL_TIMEOUT)
-                .connection_pool_size(self.config.TELEGRAM_CONNECTION_POOL_SIZE)
-                .get_updates_connect_timeout(self.config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT)
-                .get_updates_read_timeout(self.config.TELEGRAM_GET_UPDATES_READ_TIMEOUT)
-                .get_updates_write_timeout(self.config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT)
-                .get_updates_pool_timeout(self.config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT)
-                .build()
-            )
-
-            # Thiết lập handlers
-            self.setup_handlers(application)
-            application.add_error_handler(self.global_error_handler)
-
-            # Khởi chạy bot
-            logger.info("Bot đang khởi động...")
-
-            # Chạy application.initialize() và application.start() trong background
-            # để chúng ta có thể bắt tín hiệu dừng một cách chính xác
-            async with application:
-                await application.initialize()
-                await application.start()
+    async def _auto_refresh_cache_task(self) -> None:
+        """Tác vụ nền tự động xóa cache của người dùng đang đăng nhập mỗi 10 phút."""
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=600)
+                return
+            except asyncio.TimeoutError:
                 try:
-                    await application.updater.start_polling(
-                        poll_interval=self.config.TELEGRAM_POLL_INTERVAL,
-                        timeout=self.config.TELEGRAM_POLL_TIMEOUT,
-                        bootstrap_retries=self.config.TELEGRAM_BOOTSTRAP_RETRIES,
-                        error_callback=self.polling_error_callback,
-                    )
-
-                    # Bắt đầu tác vụ nền
-                    auto_refresh_task = asyncio.create_task(self.auto_refresh_cache_task())
-
-                    # Giữ bot chạy cho đến khi nhận được tín hiệu dừng (ví dụ: Ctrl+C)
-                    while True:
-                        await asyncio.sleep(1)
+                    logged_in_users = await self.db_manager.get_all_logged_in_users()
+                    for user_id in logged_in_users:
+                        await self.cache_manager.clear_user_cache(user_id, log_info=False)
                 except Exception:
-                    # Dừng application trước khi thoát context manager để tránh RuntimeError.
-                    if application.updater and application.updater.running:
-                        await application.updater.stop()
-                    if application.running:
-                        await application.stop()
-                    raise
-
-        except (KeyboardInterrupt, SystemExit):
-            logger.info("Đang dừng bot...")
-        except Exception:
-            logger.exception("Bot crashed unexpectedly.")
-            raise
-        finally:
-            # Hủy tác vụ nền
-            if auto_refresh_task:
-                auto_refresh_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await auto_refresh_task
-
-            # Đảm bảo đóng các kết nối khi bot dừng
-            if application:
-                if application.updater and application.updater.running:
-                    await application.updater.stop()
-                if application.running:
-                    await application.stop()
-                with suppress(RuntimeError):
-                    await application.shutdown()
-
-            await self.db_manager.close()
-            await self.cache_manager.close()
-            logger.info("Bot đã dừng và đóng các kết nối.")
+                    logger.exception("Lỗi trong tác vụ auto refresh cache.")
 
 
 async def main() -> None:
-    """Hàm main bất đồng bộ để chạy bot."""
     bot = HutechBot()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, bot._stop_event.set)
+        except (NotImplementedError, RuntimeError):
+            # Windows không hỗ trợ add_signal_handler cho SIGTERM; bỏ qua
+            pass
+
     await bot.run()
 
 

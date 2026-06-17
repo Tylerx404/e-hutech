@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    # Safety: only run when on main (workflow_dispatch from other branches will be skipped)
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for tag analysis and history
+
+      # Calculate the next version without creating tag yet.
+      # We will update VERSION file, commit it, then create the tag.
+      - name: Determine next version
+        id: version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Only bump on conventional commits (feat:, fix:, BREAKING:)
+          default_bump: false
+          release_branches: main
+          tag_prefix: v
+          dry_run: true
+
+      # Update the VERSION file at root when we have a new release version
+      - name: Update VERSION file
+        if: steps.version.outputs.new_version != ''
+        run: |
+          echo "${{ steps.version.outputs.new_version }}" > VERSION
+          echo "VERSION file updated to: $(cat VERSION)"
+
+      # Commit the VERSION file and create + push the git tag
+      # This ensures the tagged commit contains the correct VERSION
+      - name: Commit VERSION and create tag
+        if: steps.version.outputs.new_version != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add VERSION
+          git commit -m "chore(release): bump VERSION to ${{ steps.version.outputs.new_version }}"
+
+          # Push the VERSION commit
+          git push origin HEAD:main
+
+          # Create and push the version tag
+          git tag ${{ steps.version.outputs.new_tag }}
+          git push origin ${{ steps.version.outputs.new_tag }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: steps.version.outputs.new_tag != ''
+        with:
+          tag_name: ${{ steps.version.outputs.new_tag }}
+          name: Release ${{ steps.version.outputs.new_tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            # Always provide useful tags
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,format=short
+            type=ref,event=branch
+            # Use new version when a release was created
+            type=raw,value=${{ steps.version.outputs.new_version }},enable=${{ steps.version.outputs.new_version != '' }}
+            type=raw,value=${{ steps.version.outputs.new_tag }},enable=${{ steps.version.outputs.new_tag != '' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.new_version || github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Build only linux/amd64 by default. Add platforms if multi-arch needed later.
+          # platforms: linux/amd64
+
+      - name: Summary
+        run: |
+          echo "✅ Docker image pushed to ghcr.io/${{ github.repository }}"
+          echo "Tags: ${{ steps.meta.outputs.tags }}"
+          if [ "${{ steps.version.outputs.new_tag }}" != "" ]; then
+            echo "🚀 New release created: ${{ steps.version.outputs.new_tag }}"
+            echo "📄 VERSION file updated to: $(cat VERSION 2>/dev/null || echo 'N/A')"
+          else
+            echo "ℹ️ No new version tag created (no conventional commits warranting bump or first run may vary)"
+          fi
