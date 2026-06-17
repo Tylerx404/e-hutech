@@ -1,4 +1,3 @@
-python-telegram-bot
 aiohttp
 python-dotenv
 openpyxl
