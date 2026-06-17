@@ -1,0 +1,59 @@
+# Composite action to resolve the final release version.
+# - Uses output from mathieudutour/github-tag-action when available.
+# - Falls back to VERSION file or 1.0.0 when there are no existing git tags (first release).
+#
+# Usage:
+#   - id: release-version
+#     uses: ./.github/actions/resolve-release-version
+#     with:
+#       new-version: ${{ steps.version.outputs.new_version }}
+#       new-tag: ${{ steps.version.outputs.new_tag }}
+
+name: 'Resolve Release Version'
+description: 'Determine next release version with fallback for initial release'
+inputs:
+  new-version:
+    description: 'new_version output from github-tag-action (may be empty)'
+    required: true
+  new-tag:
+    description: 'new_tag output from github-tag-action (may be empty)'
+    required: true
+outputs:
+  new_version:
+    description: 'Final version to release (e.g. 1.2.3)'
+    value: ${{ steps.resolve.outputs.new_version }}
+  new_tag:
+    description: 'Final tag to release (e.g. v1.2.3)'
+    value: ${{ steps.resolve.outputs.new_tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve final version
+      id: resolve
+      shell: bash
+      run: |
+        NEW_VERSION="${{ inputs.new-version }}"
+        NEW_TAG="${{ inputs.new-tag }}"
+
+        if [ -z "$NEW_VERSION" ]; then
+          # Tag action did not suggest a bump (default_bump: false or first run)
+          git fetch --tags --force --prune 2>/dev/null || true
+          TAG_COUNT=$(git tag --list | wc -l | tr -d ' ')
+
+          if [ "$TAG_COUNT" -eq 0 ]; then
+            if [ -f VERSION ]; then
+              BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+            else
+              BASE_VERSION="1.0.0"
+            fi
+            NEW_VERSION="$BASE_VERSION"
+            NEW_TAG="v$BASE_VERSION"
+            echo "is_first_release=true" >> $GITHUB_OUTPUT
+            echo "Using initial version for first release: $NEW_VERSION"
+          fi
+        fi
+
+        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+        echo "Resolved release version: $NEW_VERSION ($NEW_TAG)"
