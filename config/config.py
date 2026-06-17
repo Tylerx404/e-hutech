@@ -12,6 +12,9 @@ Backend có thể tự động fallback:
 - POSTGRES_URL rỗng → dùng SQLite
 - REDIS_URL rỗng → dùng in-memory cache
 Để chọn thủ công, set STORAGE_BACKEND và CACHE_BACKEND trong .env.
+
+Class `Config` là singleton: nhiều module gọi `Config()` nhưng chỉ thực sự
+load env + log 1 lần. Các lần sau trả về instance đã cache.
 """
 
 import os
@@ -23,7 +26,21 @@ logger = logging.getLogger(__name__)
 
 
 class Config:
+    _instance: "Config | None" = None
+    _initialized: bool = False
+
+    def __new__(cls):
+        # Singleton: mọi lần gọi Config() đều trả về cùng 1 instance
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        # Chỉ chạy 1 lần dù __init__ có được gọi nhiều lần
+        if Config._initialized:
+            return
+        Config._initialized = True
+
         env_path = Path('.env')
         if env_path.exists():
             load_dotenv()
@@ -70,7 +87,7 @@ class Config:
         if not self.CACHE_BACKEND:
             self.CACHE_BACKEND = "redis" if self.REDIS_URL else "memory"
 
-        # Kiểm tra các biến môi trường cần thiết
+        # Kiểm tra các biến môi trường cần thiết (chỉ 1 lần)
         self._validate_config()
 
     def _validate_config(self):
@@ -105,7 +122,7 @@ class Config:
                 "Để trống CACHE_BACKEND để tự động fallback sang in-memory."
             )
 
-        # Log rõ backend nào đang dùng để user thấy lúc khởi động
+        # Log rõ backend nào đang dùng để user thấy lúc khởi động (1 lần)
         storage_label = (
             f"postgres ({self._redact_url(self.POSTGRES_URL)})"
             if self.STORAGE_BACKEND == "postgres"
