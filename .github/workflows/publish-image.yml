@@ -1,0 +1,106 @@
+name: Publish Docker Image
+# Purpose:
+#   - Build and push Docker image to GitHub Container Registry (ghcr.io)
+#   - Triggered by:
+#       • push to main → latest + branch + sha
+#       • push of v* tag (from Release workflow) → versioned tags (vX.Y.Z + X.Y.Z)
+#       • release event + manual workflow_dispatch
+#
+# Version tags are derived from the git tag / release using docker/metadata-action.
+# No direct dependency on the Release job outputs.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Override version tag for this image (e.g. 1.2.3 or v1.2.3). Leave empty for auto.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            # Rolling / development tags
+            type=ref,event=branch
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+
+            # Version tags from git tags or manual input
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' }}
+
+      - name: Resolve APP_VERSION (for label + runtime env)
+        id: app-version
+        run: |
+          VERSION=""
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            REF_NAME="${{ github.ref_name }}"
+            VERSION="${REF_NAME#v}"
+          elif [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+            VERSION="${TAG#v}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.tag }}" != "" ]]; then
+            INPUT_TAG="${{ inputs.tag }}"
+            VERSION="${INPUT_TAG#v}"
+          else
+            VERSION="${{ github.sha }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "APP_VERSION resolved to: $VERSION"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.app-version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # platforms: linux/amd64,linux/arm64   # enable later if needed
+
+      - name: Summary
+        run: |
+          echo "✅ Docker image pushed to ghcr.io/${{ github.repository }}"
+          echo "Tags applied:"
+          echo "${{ steps.meta.outputs.tags }}"
+          echo "APP_VERSION=${{ steps.app-version.outputs.version }}"
