@@ -7,6 +7,11 @@ File cấu hình cho bot Telegram HUTECH.
 Bot gọi trực tiếp https://api.telegram.org/bot<TOKEN>/<METHOD> qua aiohttp,
 không qua thư viện python-telegram-bot. Vì vậy hầu hết timeout/pool/connection
 của thư viện đã được lược bỏ. Chỉ giữ lại vài tham số thật sự cần cho long-polling.
+
+Backend có thể tự động fallback:
+- POSTGRES_URL rỗng → dùng SQLite
+- REDIS_URL rỗng → dùng in-memory cache
+Để chọn thủ công, set STORAGE_BACKEND và CACHE_BACKEND trong .env.
 """
 
 import os
@@ -52,22 +57,79 @@ class Config:
             "content-type": "application/json"
         }
 
-        # Cấu hình database PostgreSQL
+        # Cấu hình database & cache
         self.POSTGRES_URL = os.getenv("POSTGRES_URL", "")
-
-        # Cấu hình Redis
         self.REDIS_URL = os.getenv("REDIS_URL", "")
+        self.SQLITE_PATH = os.getenv("SQLITE_PATH", "/data/bot.db")
+        self.STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "").lower()
+        self.CACHE_BACKEND = os.getenv("CACHE_BACKEND", "").lower()
+
+        # Auto-detect backend khi chưa set thủ công
+        if not self.STORAGE_BACKEND:
+            self.STORAGE_BACKEND = "postgres" if self.POSTGRES_URL else "sqlite"
+        if not self.CACHE_BACKEND:
+            self.CACHE_BACKEND = "redis" if self.REDIS_URL else "memory"
 
         # Kiểm tra các biến môi trường cần thiết
         self._validate_config()
 
     def _validate_config(self):
-        """Kiểm tra các cấu hình bắt buộc"""
+        """Kiểm tra các cấu hình bắt buộc. Bỏ raise cho URL rỗng — chỉ raise khi
+        backend được chọn thủ công mà thiếu URL tương ứng."""
         if not self.TELEGRAM_BOT_TOKEN:
-            raise ValueError("TELEGRAM_BOT_TOKEN không được để trống. Hãy đặt biến môi trường TELEGRAM_BOT_TOKEN hoặc kiểm tra file .env.")
+            raise ValueError(
+                "TELEGRAM_BOT_TOKEN không được để trống. "
+                "Hãy đặt biến môi trường TELEGRAM_BOT_TOKEN hoặc kiểm tra file .env."
+            )
 
-        if not self.POSTGRES_URL:
-            raise ValueError("POSTGRES_URL không được để trống. Hãy đặt biến môi trường POSTGRES_URL.")
+        if self.STORAGE_BACKEND not in ("postgres", "sqlite"):
+            raise ValueError(
+                f"STORAGE_BACKEND không hợp lệ: {self.STORAGE_BACKEND!r}. "
+                "Chỉ chấp nhận 'postgres' hoặc 'sqlite'."
+            )
+        if self.CACHE_BACKEND not in ("redis", "memory"):
+            raise ValueError(
+                f"CACHE_BACKEND không hợp lệ: {self.CACHE_BACKEND!r}. "
+                "Chỉ chấp nhận 'redis' hoặc 'memory'."
+            )
 
-        if not self.REDIS_URL:
-            raise ValueError("REDIS_URL không được để trống. Hãy đặt biến môi trường REDIS_URL.")
+        # Raise chỉ khi user CHỌN postgres/redis mà quên URL tương ứng
+        if self.STORAGE_BACKEND == "postgres" and not self.POSTGRES_URL:
+            raise ValueError(
+                "STORAGE_BACKEND=postgres yêu cầu POSTGRES_URL. "
+                "Để trống STORAGE_BACKEND để tự động fallback sang sqlite."
+            )
+        if self.CACHE_BACKEND == "redis" and not self.REDIS_URL:
+            raise ValueError(
+                "CACHE_BACKEND=redis yêu cầu REDIS_URL. "
+                "Để trống CACHE_BACKEND để tự động fallback sang in-memory."
+            )
+
+        # Log rõ backend nào đang dùng để user thấy lúc khởi động
+        storage_label = (
+            f"postgres ({self._redact_url(self.POSTGRES_URL)})"
+            if self.STORAGE_BACKEND == "postgres"
+            else f"sqlite @ {self.SQLITE_PATH}"
+        )
+        cache_label = (
+            f"redis ({self._redact_url(self.REDIS_URL)})"
+            if self.CACHE_BACKEND == "redis"
+            else "in-memory (mất khi restart, không share giữa instances)"
+        )
+        logger.info("Storage backend: %s", storage_label)
+        logger.info("Cache backend:   %s", cache_label)
+
+    @staticmethod
+    def _redact_url(url: str) -> str:
+        """Ẩn password trong URL khi log."""
+        if "@" not in url:
+            return url
+        try:
+            scheme_userpass, host_part = url.rsplit("@", 1)
+            scheme, userpass = scheme_userpass.split("://", 1)
+            if ":" in userpass:
+                user, _ = userpass.split(":", 1)
+                return f"{scheme}://{user}:***@{host_part}"
+            return url
+        except Exception:
+            return url
