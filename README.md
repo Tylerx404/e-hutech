@@ -68,8 +68,13 @@ Mở file `.env` và điền các thông tin cần thiết:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
-POSTGRES_URL=postgresql://user:password@postgres:5432/db_name
-REDIS_URL=redis://redis:6379/cache_name
+
+# Để trống POSTGRES_URL → tự động dùng SQLite
+POSTGRES_URL=
+
+# Để trống REDIS_URL → tự động dùng in-memory (mất khi restart)
+REDIS_URL=
+
 LOG_LEVEL=INFO
 LOG_JSON=false
 ```
@@ -81,24 +86,30 @@ LOG_JSON=false
 ### Lựa chọn A: Docker (Khuyến khích)
 
 ```bash
-# Build và khởi động tất cả services
-docker-compose up --build -d
+# Full stack (Postgres + Redis)
+docker compose --profile full up --build -d
+
+# Không Postgres (dùng SQLite, vẫn có Redis)
+docker compose --profile no-db up --build -d
+
+# Không Redis (dùng in-memory cache, vẫn có Postgres)
+docker compose --profile no-cache up --build -d
 
 # Kiểm tra trạng thái
-docker-compose ps
+docker compose ps
 
 # Xem logs
-docker-compose logs -f hutech-bot
+docker compose logs -f hutech-bot
 
 # Dừng services
-docker-compose down
+docker compose down
 ```
 
 Docker Compose sẽ tự động khởi động **PostgreSQL**, **Redis** và **Bot** với health check đầy đủ.
 
-### Lựa chọn B: Chạy local
+### Lựa chọn B: Chạy local (không cần Docker)
 
-> **Lưu ý:** Cần cài đặt và chạy PostgreSQL và Redis trên máy local trước.
+Nếu để trống `POSTGRES_URL` và `REDIS_URL` trong `.env`, bot tự chạy với **SQLite + in-memory**:
 
 ```bash
 # Tạo môi trường ảo
@@ -109,17 +120,24 @@ source venv/bin/activate   # macOS/Linux
 # Cài đặt dependencies
 pip install -r requirements.txt
 
-# Khởi chạy bot
+# Khởi chạy bot (auto-detect: sqlite + memory)
 python bot.py
+```
+
+Nếu muốn dùng Postgres + Redis local, chỉ cần set URL trong `.env`:
+
+```env
+POSTGRES_URL=postgresql://user:pass@localhost:5432/e-hutech
+REDIS_URL=redis://localhost:6379/0
 ```
 
 ## Docker Services
 
-| Service | Image | Port | Chức năng |
-| :--- | :--- | :--- | :--- |
-| `hutech-bot` | Custom build | - | Telegram Bot chính |
-| `postgres` | `postgres:latest` | `5432` | Cơ sở dữ liệu |
-| `redis` | `redis:latest` | `6379` | Cache layer |
+| Service | Image | Port | Chức năng | Profile |
+| :--- | :--- | :---: | :--- | :--- |
+| `hutech-bot` | Custom build | - | Telegram Bot chính | full, no-db, no-cache |
+| `postgres` | `postgres` | `5432` | Cơ sở dữ liệu | full, no-cache |
+| `redis` | `redis` | `6379` | Cache layer | full, no-db |
 
 ## Giấy phép
 

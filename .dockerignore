@@ -1,34 +1,67 @@
-# Git
+# Version control & CI
 .git
 .gitignore
+.github/
 
-# Docker
+# Docker build files
 Dockerfile
 docker-compose.yml
 .dockerignore
 
-# Environment variables
+# Secrets & environment
 .env
+*.env
+.env.*
 
-# Python
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# Docs & non-runtime assets
+README.md
+LICENSE
+docs/
+images/
+
+# Runtime data (keep source code in cache/ and database/)
+cache_data/
+cache/*.db
+cache/*.sqlite*
+cache/*.log*
+database/*.db
+database/*.sqlite*
+*.log
+*.log.*
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
 .Python
-env
+env/
+.venv/
+venv/
+*.egg-info/
 pip-log.txt
 pip-delete-this-directory.txt
-.venv
-.env
 
-# IDE
-.vscode
-.idea
+# Testing, coverage & linting
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+tests/
+test_*.py
+*_test.py
 
-# OS
+# Dev tools & scripts
+scripts/
+tools/
+Makefile
+.editorconfig
+
+# IDE & OS files
+.vscode/
+.idea/
+*~
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
