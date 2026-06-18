@@ -8,10 +8,10 @@ Bot gọi trực tiếp https://api.telegram.org/bot<TOKEN>/<METHOD> qua aiohttp
 không qua thư viện python-telegram-bot. Vì vậy hầu hết timeout/pool/connection
 của thư viện đã được lược bỏ. Chỉ giữ lại vài tham số thật sự cần cho long-polling.
 
-Backend có thể tự động fallback:
-- POSTGRES_URL rỗng → dùng SQLite
-- REDIS_URL rỗng → dùng in-memory cache
-Để chọn thủ công, set STORAGE_BACKEND và CACHE_BACKEND trong .env.
+Backend tự động phát hiện:
+- POSTGRES_URL có giá trị → dùng postgres, ngược lại dùng SQLite
+- REDIS_URL có giá trị → dùng redis, ngược lại dùng in-memory
+Bạn có thể set STORAGE_BACKEND / CACHE_BACKEND trong .env để override thủ công (không cần trong docker-compose).
 
 Class `Config` là singleton: nhiều module gọi `Config()` nhưng chỉ thực sự
 load env + log 1 lần. Các lần sau trả về instance đã cache.

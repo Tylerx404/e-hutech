@@ -86,14 +86,9 @@ LOG_JSON=false
 ### Lựa chọn A: Docker (Khuyến khích)
 
 ```bash
-# Full stack (Postgres + Redis)
-docker compose --profile full up --build -d
-
-# Không Postgres (dùng SQLite, vẫn có Redis)
-docker compose --profile no-db up --build -d
-
-# Không Redis (dùng in-memory cache, vẫn có Postgres)
-docker compose --profile no-cache up --build -d
+# Khởi động đầy đủ (Postgres + Redis + Bot)
+# Auto-detect backend bên trong bot dựa trên POSTGRES_URL / REDIS_URL
+docker compose up -d --build
 
 # Kiểm tra trạng thái
 docker compose ps
@@ -105,7 +100,9 @@ docker compose logs -f hutech-bot
 docker compose down
 ```
 
-Docker Compose sẽ tự động khởi động **PostgreSQL**, **Redis** và **Bot** với health check đầy đủ.
+- Nếu để trống `POSTGRES_URL` và `REDIS_URL` → bot tự dùng **SQLite + in-memory cache** (các service postgres/redis vẫn khởi động nhưng không được dùng).
+- Để dùng Postgres/Redis: set URL trong `.env` (xem phần bên dưới).
+- Muốn chạy nhẹ (không cần postgres/redis): dùng cách chạy local `python bot.py`.
 
 ### Lựa chọn B: Chạy local (không cần Docker)
 
@@ -133,11 +130,11 @@ REDIS_URL=redis://localhost:6379/0
 
 ## Docker Services
 
-| Service | Image | Port | Chức năng | Profile |
-| :--- | :--- | :---: | :--- | :--- |
-| `hutech-bot` | Custom build | - | Telegram Bot chính | full, no-db, no-cache |
-| `postgres` | `postgres` | `5432` | Cơ sở dữ liệu | full, no-cache |
-| `redis` | `redis` | `6379` | Cache layer | full, no-db |
+| Service | Image | Port | Chức năng |
+| :--- | :--- | :---: | :--- |
+| `hutech-bot` | `ghcr.io/tylerx404/e-hutech` | - | Telegram Bot chính (tự động chọn backend) |
+| `postgres` | `postgres` | `5432` | Cơ sở dữ liệu (dùng khi có POSTGRES_URL) |
+| `redis` | `redis` | `6379` | Cache layer (dùng khi có REDIS_URL) |
 
 ## Giấy phép
 

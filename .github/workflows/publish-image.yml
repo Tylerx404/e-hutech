@@ -2,12 +2,13 @@ name: Publish Docker Image
 # Purpose:
 #   - Build and push Docker image to GitHub Container Registry (ghcr.io)
 #   - Triggered by:
-#       • push to main → latest + branch + sha
-#       • push of v* tag (from Release workflow) → versioned tags (vX.Y.Z + X.Y.Z)
+#       • push to main → latest + branch + <VERSION>-dev-<shortsha> + sha
+#       • push of v* tag (from Release workflow) → versioned tags (vX.Y.Z + X.Y.Z + latest)
 #       • release event + manual workflow_dispatch
 #
-# Version tags are derived from the git tag / release using docker/metadata-action.
-# No direct dependency on the Release job outputs.
+# Version tags for dev builds come from VERSION file + short SHA (via raw).
+# Release version tags come from git tag via docker/metadata-action semver.
+# Bare X.Y.Z tags are only applied on actual v* git tags (never overwritten by main).
 
 on:
   push:
@@ -29,6 +30,11 @@ permissions:
   contents: read
   packages: write
 
+# Prevent concurrent builds for the same ref (saves resources)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -38,6 +44,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: Read VERSION file and short SHA (for versioned image tags)
+        id: ver
+        run: |
+          if [ -f VERSION ]; then
+            VER=$(cat VERSION | tr -d '[:space:]')
+          else
+            VER="0.0.0"
+          fi
+          SHA=$(git rev-parse --short=7 HEAD 2>/dev/null || echo "${{ github.sha }}")
+          echo "version=${VER}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "VERSION=${VER} short_sha=${SHA}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -57,6 +76,8 @@ jobs:
           tags: |
             # Rolling / development tags
             type=ref,event=branch
+            # Versioned dev tags derived from VERSION file + short commit (no bare version to avoid overwriting release tags)
+            type=raw,value=${{ steps.ver.outputs.version }}-dev-${{ steps.ver.outputs.short_sha }},enable=${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.tag == '') }}
             type=sha,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
 
@@ -69,7 +90,8 @@ jobs:
       - name: Resolve APP_VERSION (for label + runtime env)
         id: app-version
         run: |
-          VERSION=""
+          BASE_VERSION="${{ steps.ver.outputs.version }}"
+          SHORT_SHA="${{ steps.ver.outputs.short_sha }}"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             REF_NAME="${{ github.ref_name }}"
             VERSION="${REF_NAME#v}"
@@ -80,7 +102,8 @@ jobs:
             INPUT_TAG="${{ inputs.tag }}"
             VERSION="${INPUT_TAG#v}"
           else
-            VERSION="${{ github.sha }}"
+            # Dev/main builds: use VERSION file + dev + short sha (no more raw commit hash)
+            VERSION="${BASE_VERSION}-dev-${SHORT_SHA}"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "APP_VERSION resolved to: $VERSION"
@@ -101,6 +124,7 @@ jobs:
       - name: Summary
         run: |
           echo "✅ Docker image pushed to ghcr.io/${{ github.repository }}"
+          echo "Base VERSION file: ${{ steps.ver.outputs.version }}"
           echo "Tags applied:"
           echo "${{ steps.meta.outputs.tags }}"
           echo "APP_VERSION=${{ steps.app-version.outputs.version }}"
