@@ -2,13 +2,13 @@ name: Publish Docker Image
 # Purpose:
 #   - Build and push Docker image to GitHub Container Registry (ghcr.io)
 #   - Triggered by:
-#       • push to main → latest + main + sha-<short> + v${VERSION} + ${VERSION}
+#       • push to main → latest + main + v${VERSION} + ${VERSION}
 #       • push of v* tag (from Release workflow) → vX.Y.Z + X.Y.Z + latest (clean release tags)
 #       • release event + manual workflow_dispatch
 #
-# Main builds carry the version declared in VERSION file (so you can pull :v1.0.1 directly from main).
+# Main builds carry the version declared in VERSION file so the "Install from the command line"
+# can default to v1.0.1 (or 1.0.1) instead of sha-xxx.
 # Tag pushes add the same version tags via git ref + semver.
-# sha tag only for traceability on dev builds.
 
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Read VERSION file and short SHA
+      - name: Read VERSION file
         id: ver
         run: |
           if [ -f VERSION ]; then
@@ -82,9 +82,6 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
 
-            # Traceability
-            type=sha,format=short,enable=${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.tag == '') }}
-
             # From actual v* git tag
             type=ref,event=tag
             type=semver,pattern={{version}}
@@ -107,6 +104,7 @@ jobs:
             VERSION="${INPUT_TAG#v}"
           else
             # Dev/main builds: mark as dev build (used for LABEL + APP_VERSION inside container)
+            # The registry tag itself no longer includes sha (to keep v1.0.1 as clean default)
             VERSION="${BASE_VERSION}-dev-${SHORT_SHA}"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
