@@ -17,6 +17,11 @@ on:
 permissions:
   contents: write
 
+# Serialize releases on main to avoid concurrent tag/VERSION conflicts
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
