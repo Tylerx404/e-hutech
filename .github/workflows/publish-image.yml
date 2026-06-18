@@ -2,13 +2,13 @@ name: Publish Docker Image
 # Purpose:
 #   - Build and push Docker image to GitHub Container Registry (ghcr.io)
 #   - Triggered by:
-#       • push to main → latest + main + sha-<short>
+#       • push to main → latest + main + sha-<short> + v${VERSION} + ${VERSION}
 #       • push of v* tag (from Release workflow) → vX.Y.Z + X.Y.Z + latest (clean release tags)
 #       • release event + manual workflow_dispatch
 #
-# Dev builds (main) get: main, sha-<short>, latest
-# Release builds (v* tags) get clean version tags via ref + semver.
-# Never create bare version tags (1.0.1 or v1.0.1) from main pushes.
+# Main builds carry the version declared in VERSION file (so you can pull :v1.0.1 directly from main).
+# Tag pushes add the same version tags via git ref + semver.
+# sha tag only for traceability on dev builds.
 
 on:
   push:
@@ -74,14 +74,18 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            # Development / rolling tags (main pushes)
+            # Version from VERSION file (main carries v1.0.1 etc so you can pull the declared version)
+            type=raw,value=v${{ steps.ver.outputs.version }},enable=${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.tag == '') }}
+            type=raw,value=${{ steps.ver.outputs.version }},enable=${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.tag == '') }}
+
+            # Rolling
             type=ref,event=branch
-            type=sha,format=short,enable=${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.tag == '') }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
 
-            # Clean release tags (only from actual v* git tags)
-            # - type=ref,event=tag  → v1.0.1 (exactly as the git tag)
-            # - semver → 1.0.1 , 1.0
+            # Traceability
+            type=sha,format=short,enable=${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.tag == '') }}
+
+            # From actual v* git tag
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
