@@ -2,13 +2,13 @@ name: Publish Docker Image
 # Purpose:
 #   - Build and push Docker image to GitHub Container Registry (ghcr.io)
 #   - Triggered by:
-#       • push to main → latest + branch + <VERSION>-dev-<shortsha> + sha
-#       • push of v* tag (from Release workflow) → versioned tags (vX.Y.Z + X.Y.Z + latest)
+#       • push to main → latest + main + sha-<short>
+#       • push of v* tag (from Release workflow) → vX.Y.Z + X.Y.Z + latest (clean release tags)
 #       • release event + manual workflow_dispatch
 #
-# Version tags for dev builds come from VERSION file + short SHA (via raw).
-# Release version tags come from git tag via docker/metadata-action semver.
-# Bare X.Y.Z tags are only applied on actual v* git tags (never overwritten by main).
+# Dev builds (main) get: main, sha-<short>, latest
+# Release builds (v* tags) get clean version tags via ref + semver.
+# Never create bare version tags (1.0.1 or v1.0.1) from main pushes.
 
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Read VERSION file and short SHA (for versioned image tags)
+      - name: Read VERSION file and short SHA
         id: ver
         run: |
           if [ -f VERSION ]; then
@@ -74,14 +74,14 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            # Rolling / development tags
+            # Development / rolling tags (main pushes)
             type=ref,event=branch
-            # Versioned dev tags derived from VERSION file + short commit (no bare version to avoid overwriting release tags)
-            type=raw,value=${{ steps.ver.outputs.version }}-dev-${{ steps.ver.outputs.short_sha }},enable=${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.tag == '') }}
-            type=sha,format=short
+            type=sha,format=short,enable=${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.tag == '') }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
 
-            # Version tags from git tags or manual input
+            # Clean release tags (only from actual v* git tags)
+            # - type=ref,event=tag  → v1.0.1 (exactly as the git tag)
+            # - semver → 1.0.1 , 1.0
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -102,7 +102,7 @@ jobs:
             INPUT_TAG="${{ inputs.tag }}"
             VERSION="${INPUT_TAG#v}"
           else
-            # Dev/main builds: use VERSION file + dev + short sha (no more raw commit hash)
+            # Dev/main builds: mark as dev build (used for LABEL + APP_VERSION inside container)
             VERSION="${BASE_VERSION}-dev-${SHORT_SHA}"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
