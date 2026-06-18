@@ -40,6 +40,7 @@ from utils.rich_message import (
     p,
     p_html,
     section_heading,
+    table,
 )
 from utils.state_store import StateStore
 from utils.telegram_api import TelegramAPI, TelegramAPIError
@@ -143,7 +144,7 @@ class DiemDanhTatCaHandler:
         html = join_blocks([
             section_heading("📍", f"Chọn Vị Trí Điểm Danh Tất Cả ({accounts_count} tài khoản)"),
             p("Chọn campus để bắt đầu điểm danh."),
-            p("<i>💡 Tip: Dùng /vitri để lưu vị trí mặc định và bỏ qua bước này.</i>"),
+            p_html("<i>💡 Tip: Dùng /vitri để lưu vị trí mặc định và bỏ qua bước này.</i>"),
         ])
         rows: List[List[Dict[str, Any]]] = []
         row: List[Dict[str, Any]] = []
@@ -286,16 +287,20 @@ class DiemDanhTatCaHandler:
 
     @classmethod
     def _result_rich_html(cls, campus: str, result: Dict[str, Any]) -> str:
-        ok = bool(result.get("success"))
-        title = "✅ Kết quả điểm danh tất cả" if ok else "⚠️ Kết quả điểm danh tất cả"
-        blocks: List[str] = [
-            section_heading("📍", f"{title} - {escape_html(campus)}"),
-        ]
-        map_block = build_campus_map_block(campus)
-        if map_block:
-            blocks.append(map_block)
-        blocks.append(p(escape_html(result.get("message", ""))))
-        return join_blocks(blocks)
+        data = result.get("data") if isinstance(result, dict) else None
+        if not data:
+            ok = bool(result.get("success"))
+            title = "✅ Kết quả điểm danh tất cả" if ok else "⚠️ Kết quả điểm danh tất cả"
+            blocks: List[str] = [
+                section_heading("📍", f"{title} - {escape_html(campus)}"),
+            ]
+            map_block = build_campus_map_block(campus)
+            if map_block:
+                blocks.append(map_block)
+            blocks.append(p(escape_html(result.get("message", ""))))
+            return join_blocks(blocks)
+
+        return cls._format_result(data)
 
     # ==================== HUTECH API ====================
 
@@ -352,24 +357,38 @@ class DiemDanhTatCaHandler:
     @staticmethod
     def _format_result(results: List[Dict[str, Any]]) -> str:
         if not results:
-            return "🚫 Kết Quả Điểm Danh Tất Cả\n\nKhông có tài khoản nào để điểm danh."
-        lines = ["📍 <b>Kết Quả Điểm Danh Tất Cả</b>", ""]
-        success = fail = 0
-        for r in results:
+            return join_blocks([
+                section_heading("📍", "Kết Quả Điểm Danh Tất Cả"),
+                p("Không có tài khoản nào để điểm danh."),
+            ])
+
+        success = sum(1 for r in results if r.get("success"))
+        fail = len(results) - success
+
+        rows: List[List[str]] = []
+        for idx, r in enumerate(results, start=1):
             username = r.get("username", "Unknown")
             ok = r.get("success", False)
             msg = r.get("message", "")
-            if ok:
-                success += 1
-                lines.append(f"✅ <b>{username}</b>")
-            else:
-                fail += 1
-                lines.append(f"❌ <b>{username}</b>")
-            lines.append(f"→ {msg}")
-            lines.append("")
-        lines.append("─" * 20)
-        lines.append(f"Tổng: {len(results)} tài khoản | ✅ {success} thành công | ❌ {fail} thất bại")
-        return "\n".join(lines)
+            status = "✅ Thành công" if ok else "❌ Thất bại"
+            rows.append([str(idx), username, status, msg])
+
+        summary = (
+            f"Tổng: {len(results)} tài khoản | "
+            f"✅ {success} thành công | ❌ {fail} thất bại"
+        )
+
+        parts: List[str] = [
+            section_heading("📍", "Kết Quả Điểm Danh Tất Cả"),
+            table(
+                headers=["#", "Tài khoản", "Trạng thái", "Lý do"],
+                rows=rows,
+                bordered=True,
+                striped=True,
+            ),
+            p(summary),
+        ]
+        return join_blocks(parts)
 
     async def _call_api(self, token: str, code: str, device_uuid: str,
                        location: Dict[str, float]) -> Optional[Dict[str, Any]]:

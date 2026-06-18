@@ -141,7 +141,7 @@ class DiemDanhHandler:
         html = join_blocks([
             section_heading("📍", "Chọn Vị Trí Điểm Danh"),
             p("Chọn campus để bắt đầu điểm danh."),
-            p("<i>💡 Tip: Dùng /vitri để lưu vị trí mặc định và bỏ qua bước này.</i>"),
+            p_html("<i>💡 Tip: Dùng /vitri để lưu vị trí mặc định và bỏ qua bước này.</i>"),
         ])
         rows: List[List[Dict[str, Any]]] = []
         row: List[Dict[str, Any]] = []
