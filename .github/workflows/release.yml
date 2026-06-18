@@ -1,12 +1,14 @@
 name: Release
 # Purpose:
-#   - Analyze conventional commits since last tag
-#   - Decide next semantic version (or fallback for first release)
-#   - Update VERSION file, commit it, push git tag + create GitHub Release
+#   - Analyze conventional commits since last tag (via github-tag-action)
+#   - Or honor VERSION file when it differs from latest tag (manual / file-driven bump)
+#   - Update VERSION file (if needed), create git tag (vX.Y.Z) + GitHub Release
 #
 # After this workflow creates a tag (vX.Y.Z):
 #   - The "Publish Docker Image" workflow is triggered automatically
 #   - See: .github/workflows/publish-image.yml
+#
+# Note: Only runs on main (for safety). Merge your VERSION bump to main to trigger release.
 
 on:
   push:
@@ -35,9 +37,9 @@ jobs:
           fetch-depth: 0
           fetch-tags: true  # Ensure we can detect existing tags for version fallback
 
-      # Calculate the next version without creating tag yet.
-      # We will update VERSION file, commit it, then create the tag.
-      - name: Determine next version
+      # Calculate the next version without creating tag yet (based on conventional commits).
+      # If no bump, resolve-release-version will still check VERSION file vs latest tag.
+      - name: Determine next version (conventional commits)
         id: version
         uses: mathieudutour/github-tag-action@v6.2
         with:
@@ -48,8 +50,9 @@ jobs:
           tag_prefix: v
           dry_run: true
 
-      # Resolve final version to release (with first-release fallback).
-      # Logic lives in .github/actions/resolve-release-version
+      # Resolve final version:
+      # - Prefer github-tag-action result (auto semver from commits)
+      # - Else fall back to VERSION file if it differs from last tag version
       - name: Resolve release version
         id: release-version
         uses: ./.github/actions/resolve-release-version
@@ -111,5 +114,5 @@ jobs:
             echo "🏷️  Git tag pushed: ${{ steps.release-version.outputs.new_tag }}"
             echo "   → Docker image publish will be triggered by the tag (see publish-image workflow)"
           else
-            echo "ℹ️ No new version tag created (no conventional commits warranting bump or first run with existing tags)"
+            echo "ℹ️ No new version tag created (no conventional commit bump AND VERSION file matches latest tag)"
           fi
