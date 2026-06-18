@@ -1,6 +1,8 @@
 # Composite action to resolve the final release version.
-# - Uses output from mathieudutour/github-tag-action when available.
-# - Falls back to VERSION file or 1.0.0 when there are no existing git tags (first release).
+# - Uses output from mathieudutour/github-tag-action when available (conventional commits).
+# - Falls back to VERSION file when:
+#     * No tags exist yet (first release), OR
+#     * VERSION file differs from the latest v* tag version (manual or file-driven bump).
 #
 # Usage:
 #   - id: release-version
@@ -36,24 +38,46 @@ runs:
         NEW_VERSION="${{ inputs.new-version }}"
         NEW_TAG="${{ inputs.new-tag }}"
 
-        if [ -z "$NEW_VERSION" ]; then
-          # Tag action did not suggest a bump (default_bump: false or first run)
-          git fetch --tags --force --prune 2>/dev/null || true
-          TAG_COUNT=$(git tag --list | wc -l | tr -d ' ')
+        git fetch --tags --force --prune 2>/dev/null || true
 
-          if [ "$TAG_COUNT" -eq 0 ]; then
-            if [ -f VERSION ]; then
-              BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+        if [ -z "$NEW_VERSION" ]; then
+          # Tag action did not suggest a bump (default_bump: false, chore commit, etc.)
+          # Check VERSION file. Support:
+          # - First release (no tags)
+          # - Subsequent releases when VERSION file was manually/advanced to a different version
+          if [ -f VERSION ]; then
+            CUR_VERSION=$(cat VERSION | tr -d '[:space:]')
+          else
+            CUR_VERSION=""
+          fi
+
+          # Find latest tag version (strip leading v)
+          LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | head -1 || true)
+          LATEST_VERSION="${LATEST_TAG#v}"
+
+          if [ -z "$LATEST_TAG" ]; then
+            # No tags at all → first release from VERSION or default
+            if [ -n "$CUR_VERSION" ]; then
+              NEW_VERSION="$CUR_VERSION"
+              NEW_TAG="v$CUR_VERSION"
             else
-              BASE_VERSION="1.0.0"
+              NEW_VERSION="1.0.0"
+              NEW_TAG="v1.0.0"
             fi
-            NEW_VERSION="$BASE_VERSION"
-            NEW_TAG="v$BASE_VERSION"
             echo "is_first_release=true" >> $GITHUB_OUTPUT
             echo "Using initial version for first release: $NEW_VERSION"
+          elif [ -n "$CUR_VERSION" ] && [ "$CUR_VERSION" != "$LATEST_VERSION" ]; then
+            # VERSION file indicates a different version than last tag → honor it
+            NEW_VERSION="$CUR_VERSION"
+            NEW_TAG="v$CUR_VERSION"
+            echo "Using VERSION file for release (differs from $LATEST_TAG): $NEW_VERSION"
           fi
         fi
 
         echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
         echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
-        echo "Resolved release version: $NEW_VERSION ($NEW_TAG)"
+        if [ -n "$NEW_VERSION" ]; then
+          echo "Resolved release version: $NEW_VERSION ($NEW_TAG)"
+        else
+          echo "Resolved release version: (no bump detected)"
+        fi
