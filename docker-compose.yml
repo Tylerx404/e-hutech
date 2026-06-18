@@ -2,17 +2,13 @@ services:
   hutech-bot:
     build:
       context: .
-    image: ghcr.io/Tylerx404/e-hutech
+    image: ghcr.io/tylerx404/e-hutech
     container_name: hutech-bot
-    profiles: ["full", "no-db", "no-cache"]
     restart: unless-stopped
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - POSTGRES_URL=${POSTGRES_URL:-}
       - REDIS_URL=${REDIS_URL:-}
-      - STORAGE_BACKEND=${STORAGE_BACKEND:-}
-      - CACHE_BACKEND=${CACHE_BACKEND:-}
-      - SQLITE_PATH=/data/bot.db
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_JSON=${LOG_JSON:-true}
       - TZ=Asia/Ho_Chi_Minh
@@ -40,7 +36,6 @@ services:
   postgres:
     image: postgres
     container_name: hutech-postgres
-    profiles: ["full", "no-cache"]
     ports:
       - "5432:5432"
     environment:
@@ -59,7 +54,6 @@ services:
   redis:
     image: redis
     container_name: hutech-redis
-    profiles: ["full", "no-db"]
     ports:
       - "6379:6379"
     volumes:
