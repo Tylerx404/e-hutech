@@ -9,6 +9,10 @@ Luồng `/diemdanh`:
 2. Nhập mã số điểm danh `CODE_LENGTH` chữ số (mặc định 4).
 3. Gọi API HUTECH submit điểm danh với GPS của campus.
 
+UI dùng Rich Message (Bot API 10.1): mỗi message hiển thị `<tg-map>`
+preview vị trí GPS của campus đã chọn. Khi nhập từng số / submit, message
+được edit để cập nhật map + keypad.
+
 State tạm per user (lưu trong cache):
     feature: "diemdanh"
     campus: tên campus đã chọn
@@ -32,9 +36,16 @@ from datetime import datetime, timedelta
 
 from config.config import Config
 from utils.button_style import make_inline_button, build_inline_keyboard
+from utils.rich_message import (
+    escape_html,
+    join_blocks,
+    p,
+    p_html,
+    section_heading,
+)
 from utils.state_store import StateStore
 from utils.telegram_api import TelegramAPI, TelegramAPIError
-from handlers.vi_tri_handler import CAMPUS_LOCATIONS
+from handlers.vi_tri_handler import CAMPUS_LOCATIONS, build_campus_map_block
 
 logger = logging.getLogger(__name__)
 
@@ -99,14 +110,14 @@ class DiemDanhHandler:
         if callback_data == "num_exit":
             await self.state.clear_state(user_id)
             try:
-                await self.telegram.edit_message_text_plain(
+                await self.telegram.edit_message_text_rich(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text="❎ *Đã thoát lệnh.*\n\nDùng /diemdanh để bắt đầu lại.",
-                    parse_mode="Markdown",
+                    html=self._exit_rich_html(),
                 )
-            except TelegramAPIError:
-                pass
+            except TelegramAPIError as e:
+                if "message is not modified" not in e.description.lower():
+                    raise
             return
         if callback_data == "num_delete":
             current = current[:-1]
@@ -127,10 +138,11 @@ class DiemDanhHandler:
     # ==================== Internal ====================
 
     async def _show_campus_menu(self, chat_id: int, reply_to_message_id: Optional[int]) -> None:
-        text = (
-            "📍 *Chọn Vị Trí Điểm Danh*\n\n"
-            "💡 *Tip:* Bạn có thể dùng /vitri để lưu vị trí mặc định và bỏ qua bước này."
-        )
+        html = join_blocks([
+            section_heading("📍", "Chọn Vị Trí Điểm Danh"),
+            p("Chọn campus để bắt đầu điểm danh."),
+            p("<i>💡 Tip: Dùng /vitri để lưu vị trí mặc định và bỏ qua bước này.</i>"),
+        ])
         rows: List[List[Dict[str, Any]]] = []
         row: List[Dict[str, Any]] = []
         keys = list(CAMPUS_LOCATIONS.keys())
@@ -139,11 +151,10 @@ class DiemDanhHandler:
             if len(row) == 2 or i == len(keys) - 1:
                 rows.append(row)
                 row = []
-        await self.telegram.send_message(
+        await self.telegram.send_rich_message(
             chat_id=chat_id,
-            text=text,
+            html=html,
             reply_markup=build_inline_keyboard(rows),
-            parse_mode="Markdown",
             reply_to_message_id=reply_to_message_id,
         )
 
@@ -154,11 +165,10 @@ class DiemDanhHandler:
             "campus": campus_name,
             "input": "",
         })
-        await self.telegram.send_message(
+        await self.telegram.send_rich_message(
             chat_id=chat_id,
-            text=self._numeric_text(campus_name, ""),
+            html=self._numeric_rich_html(campus_name, ""),
             reply_markup=build_inline_keyboard(self._numeric_keyboard_rows()),
-            parse_mode="Markdown",
             reply_to_message_id=reply_to_message_id,
         )
 
@@ -166,24 +176,40 @@ class DiemDanhHandler:
         st = await self.state.get_state(user_id)
         campus = st.get("campus", "")
         current = st.get("input", "")
-        text = self._numeric_text(campus, current)
+        html = self._numeric_rich_html(campus, current)
         if edit:
             try:
-                await self.telegram.edit_message_text_plain(
+                await self.telegram.edit_message_text_rich(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text=text,
+                    html=html,
                     reply_markup=build_inline_keyboard(self._numeric_keyboard_rows()),
-                    parse_mode="Markdown",
                 )
             except TelegramAPIError as e:
                 if "message is not modified" not in e.description.lower():
                     raise
 
     @staticmethod
-    def _numeric_text(campus: str, current: str) -> str:
-        display = "".join((current[i] + " ") if i < len(current) else "▫️" for i in range(CODE_LENGTH))
-        return f"📍 *Điểm Danh Tại {campus}*\n\nNhập mã điểm danh: {display}"
+    def _code_display(current: str) -> str:
+        return "".join((current[i] + " ") if i < len(current) else "▫️" for i in range(CODE_LENGTH))
+
+    @classmethod
+    def _numeric_rich_html(cls, campus: str, current: str) -> str:
+        blocks: List[str] = [
+            section_heading("📍", f"Điểm Danh Tại {escape_html(campus)}"),
+        ]
+        map_block = build_campus_map_block(campus)
+        if map_block:
+            blocks.append(map_block)
+        blocks.append(p_html(f"<b>Nhập mã điểm danh:</b> {cls._code_display(current)}"))
+        return join_blocks(blocks)
+
+    @staticmethod
+    def _exit_rich_html() -> str:
+        return join_blocks([
+            section_heading("❎", "Đã thoát lệnh"),
+            p("Dùng /diemdanh để bắt đầu lại."),
+        ])
 
     @staticmethod
     def _numeric_keyboard_rows() -> List[List[Dict[str, Any]]]:
@@ -212,31 +238,58 @@ class DiemDanhHandler:
 
     async def _do_submit(self, chat_id: int, message_id: int, user_id: int,
                          campus_name: str, code: str) -> None:
-        # Hiển thị "Đang điểm danh..." ngay khi nhập đủ
+        # Hiển thị "Đang điểm danh..." ngay khi nhập đủ (giữ map + keypad)
         try:
-            await self.telegram.edit_message_text_plain(
+            await self.telegram.edit_message_text_rich(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=self._numeric_text(campus_name, code) + "\n\n⏳ Đang điểm danh...",
-                parse_mode="Markdown",
+                html=self._submitting_rich_html(campus_name, code),
             )
-        except TelegramAPIError:
-            pass
+        except TelegramAPIError as e:
+            if "message is not modified" not in e.description.lower():
+                raise
 
         result = await self.handle_submit_diem_danh(user_id, code, campus_name)
         await self.state.clear_state(user_id)
 
+        result_html = self._result_rich_html(campus_name, result)
         try:
-            await self.telegram.edit_message_text_plain(
+            await self.telegram.edit_message_text_rich(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=result["message"],
-                parse_mode="HTML",
+                html=result_html,
             )
-        except TelegramAPIError:
-            await self.telegram.send_message(
-                chat_id=chat_id, text=result["message"], parse_mode="HTML"
-            )
+        except TelegramAPIError as e:
+            if "message is not modified" not in e.description.lower():
+                # Fallback: gửi text thường nếu rich không khả thi
+                await self.telegram.send_message(
+                    chat_id=chat_id, text=result["message"], parse_mode="HTML"
+                )
+
+    @classmethod
+    def _submitting_rich_html(cls, campus: str, code: str) -> str:
+        blocks: List[str] = [
+            section_heading("⏳", f"Đang điểm danh tại {escape_html(campus)}"),
+        ]
+        map_block = build_campus_map_block(campus)
+        if map_block:
+            blocks.append(map_block)
+        blocks.append(p_html(f"<b>Mã đã nhập:</b> {cls._code_display(code)}"))
+        blocks.append(p("Vui lòng chờ trong giây lát..."))
+        return join_blocks(blocks)
+
+    @classmethod
+    def _result_rich_html(cls, campus: str, result: Dict[str, Any]) -> str:
+        ok = bool(result.get("success"))
+        title = "✅ Điểm danh thành công" if ok else "❌ Điểm danh thất bại"
+        blocks: List[str] = [
+            section_heading("📍" if ok else "⚠️", f"{title} - {escape_html(campus)}"),
+        ]
+        map_block = build_campus_map_block(campus)
+        if map_block:
+            blocks.append(map_block)
+        blocks.append(p(escape_html(result.get("message", ""))))
+        return join_blocks(blocks)
 
     # ==================== HUTECH API ====================
 
