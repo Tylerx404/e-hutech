@@ -8,6 +8,9 @@ Dùng cho `/diemdanh` và `/diemdanhtatca` — bot sẽ dùng campus đã lưu l
 vị trí GPS mặc định khi submit điểm danh. Nếu chưa set, user phải chọn
 trong menu trước khi nhập mã số.
 
+UI dùng Rich Message (Bot API 10.1): mỗi khi user chọn / xoá campus,
+message được edit kèm `<tg-map>` preview vị trí GPS.
+
 Cú pháp callback:
     vitri_select_<campus_name>  - lưu campus làm mặc định
     vitri_delete                - xóa campus đã lưu
@@ -17,7 +20,15 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from utils.button_style import make_inline_button, build_inline_keyboard
-from utils.telegram_api import TelegramAPI
+from utils.rich_message import (
+    escape_html,
+    join_blocks,
+    p,
+    p_html,
+    section_heading,
+    tg_map,
+)
+from utils.telegram_api import TelegramAPI, TelegramAPIError
 from config.config import Config
 
 logger = logging.getLogger(__name__)
@@ -29,6 +40,25 @@ CAMPUS_LOCATIONS: Dict[str, Dict[str, float]] = {
     "Ung Van Khiem Campus": {"lat": 10.8098001, "long": 106.714906},
     "Hitech Park Campus": {"lat": 10.8408075, "long": 106.8088987},
 }
+
+
+def build_campus_map_block(campus_name: Optional[str]) -> str:
+    """Trả về `<tg-map>` cho campus (chuỗi rỗng nếu không hợp lệ).
+
+    Dùng chung cho `vi_tri_handler`, `diem_danh_handler`,
+    `diem_danh_tat_ca_handler` để hiển thị map preview ở cùng tọa độ.
+    """
+    if not campus_name:
+        return ""
+    loc = CAMPUS_LOCATIONS.get(campus_name)
+    if not loc:
+        return ""
+    return tg_map(
+        loc["lat"],
+        loc["long"],
+        zoom=16,
+        caption=f"{loc['lat']}, {loc['long']}",
+    )
 
 
 class ViTriHandler:
@@ -58,11 +88,10 @@ class ViTriHandler:
 
     async def cmd_vitri(self, chat_id: int, user_id: int, reply_to_message_id: Optional[int]) -> None:
         preferred = await self.get_user_preferred_campus(user_id)
-        await self.telegram.send_message(
+        await self.telegram.send_rich_message(
             chat_id=chat_id,
-            text=self._format_menu(preferred),
+            html=self._format_rich_menu(preferred),
             reply_markup=self._build_keyboard(preferred),
-            parse_mode="Markdown",
             reply_to_message_id=reply_to_message_id,
         )
 
@@ -73,43 +102,43 @@ class ViTriHandler:
         if callback_data == "vitri_delete":
             await self.delete_user_preferred_campus(user_id)
             preferred = None
-            text = self._format_menu(None)
+            html = self._format_rich_menu(None)
             markup = self._build_keyboard(None)
         elif callback_data.startswith("vitri_select_"):
             campus_name = callback_data[len("vitri_select_"):]
             await self.set_user_preferred_campus(user_id, campus_name)
             preferred = campus_name
-            text = self._format_menu(campus_name)
+            html = self._format_rich_menu(campus_name)
             markup = self._build_keyboard(campus_name)
         else:
             return
 
         try:
-            await self.telegram.edit_message_text_plain(
+            await self.telegram.edit_message_text_rich(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=text,
+                html=html,
                 reply_markup=markup,
-                parse_mode="Markdown",
             )
-        except Exception as e:
-            logger.debug("Không thể edit vitri message: %s", e)
+        except TelegramAPIError as e:
+            if "message is not modified" not in e.description.lower():
+                raise
 
     # ==================== Internal ====================
 
     @staticmethod
-    def _format_menu(preferred_campus: Optional[str]) -> str:
-        lines = ["📍 *Quản Lý Vị Trí Điểm Danh*", ""]
+    def _format_rich_menu(preferred_campus: Optional[str]) -> str:
+        blocks: List[str] = [section_heading("📍", "Quản Lý Vị Trí Điểm Danh")]
         if preferred_campus:
-            # Escape underscores để hiển thị đúng trong Markdown
-            clean = preferred_campus.lstrip("_")
-            esc = clean.replace("_", "\\_")
-            lines.append(f"✅ *Vị trí hiện tại:* {esc}")
+            loc = CAMPUS_LOCATIONS.get(preferred_campus)
+            campus_line = f"Vị trí hiện tại: <b>{escape_html(preferred_campus)}</b>"
+            blocks.append(p_html(campus_line))
+            if loc:
+                blocks.append(build_campus_map_block(preferred_campus))
         else:
-            lines.append("❌ *Chưa cài đặt vị trí*")
-        lines.append("")
-        lines.append("Chọn một campus để lưu làm vị trí mặc định.")
-        return "\n".join(lines)
+            blocks.append(p("Chưa cài đặt vị trí."))
+        blocks.append(p("Chọn một campus để lưu làm vị trí mặc định."))
+        return join_blocks(blocks)
 
     def _build_keyboard(self, preferred_campus: Optional[str]) -> Dict[str, Any]:
         rows: List[List[Dict[str, Any]]] = []

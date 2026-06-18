@@ -16,6 +16,7 @@ Quy ước tag:
 - `<hr/>`: phân cách.
 - `<footer>`: chân trang.
 - `<table bordered striped>` với `<tr><th>` cho header và `<tr><td>` cho data.
+- `<tg-map lat long zoom/>`: map preview (lat/long/zoom là số, KHÔNG escape).
 
 Lưu ý: Trong `<td>`/`<th>` chỉ được chứa inline tag. Code tự thay newline
 trong cell bằng `<br/>`.
@@ -23,7 +24,7 @@ trong cell bằng `<br/>`.
 
 from datetime import datetime, timedelta
 from html import escape as _html_escape
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 
 def escape_html(text: str) -> str:
@@ -44,8 +45,21 @@ def h2(text: str) -> str:
 
 
 def p(text: str) -> str:
-    """Đoạn văn `<p>...</p>`."""
+    """Đoạn văn `<p>...</p>`. Tự escape HTML cho text node thuần."""
     return f"<p>{escape_html(text)}</p>"
+
+
+def p_html(html_content: str) -> str:
+    """Đoạn văn `<p>...</p>` với nội dung HTML thô (KHÔNG escape).
+
+    Dùng khi nội dung đã chứa sẵn HTML an toàn — ví dụ: nhúng `<b>` từ helper `b()`,
+    hoặc tag custom đã validate. Không escape `html_content`.
+
+    Ví dụ:
+        p_html(f"Vị trí hiện tại: {b('Hitech Park Campus')}")
+        → <p>Vị trí hiện tại: <b>Hitech Park Campus</b></p>
+    """
+    return f"<p>{html_content}</p>"
 
 
 def b(text: str) -> str:
@@ -163,3 +177,28 @@ def footer_updated_at(timestamp_str: str | None, tz_offset_hours: int = 7) -> st
 def rich_text_html(parts: List[str]) -> str:
     """Nối nhiều block thành 1 chuỗi HTML hoàn chỉnh."""
     return join_blocks(parts)
+
+
+def tg_map(
+    lat: float,
+    long: float,
+    zoom: int = 16,
+    caption: Optional[str] = None,
+) -> str:
+    """Render `<tg-map lat="..." long="..." zoom="..."/>` cho Rich Message.
+
+    Theo `https://core.telegram.org/bots/api#richblockmap`, zoom hợp lệ 13-20.
+    `lat`/`long`/`zoom` là số nên KHÔNG cần escape HTML.
+
+    Args:
+        lat: Vĩ độ (latitude).
+        long: Kinh độ (longitude).
+        zoom: Mức zoom (13-20), mặc định 16 để hiển thị khuôn viên campus.
+        caption: Chú thích tuỳ chọn, sẽ bọc trong `<figcaption>`.
+    """
+    if not (13 <= zoom <= 20):
+        raise ValueError(f"zoom phải nằm trong [13, 20], nhận {zoom}")
+    tag = f'<tg-map lat="{lat}" long="{long}" zoom="{zoom}"/>'
+    if caption:
+        return f"<figure>{tag}<figcaption>{escape_html(caption)}</figcaption></figure>"
+    return tag
